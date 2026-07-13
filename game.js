@@ -16,10 +16,18 @@
     knife: { name: "Kitchen knife", icon: "KNF", kind: "weapon", mode: "melee", damage: 14, range: 46, cooldown: 0.4, noise: 22, staminaCost: 8, weight: 0.6, maxStack: 1, description: "Fast and quiet, but dangerously close." },
     bat: { name: "Baseball bat", icon: "BAT", kind: "weapon", mode: "melee", damage: 22, range: 58, cooldown: 0.62, noise: 42, staminaCost: 13, weight: 1.4, maxStack: 1, description: "Reliable blunt force." },
     axe: { name: "Fire axe", icon: "AXE", kind: "weapon", mode: "melee", damage: 36, range: 62, cooldown: 0.82, noise: 48, staminaCost: 17, weight: 2.2, maxStack: 1, description: "Heavy, exhausting, devastating." },
+    machete: { name: "Brush machete", icon: "MCH", kind: "weapon", mode: "melee", damage: 28, range: 66, cooldown: 0.56, noise: 34, staminaCost: 11, weight: 1, maxStack: 1, description: "A long, fast blade made for clearing more than brush." },
+    crowbar: { name: "Steel crowbar", icon: "BAR", kind: "weapon", mode: "melee", damage: 24, range: 63, cooldown: 0.68, noise: 50, staminaCost: 14, weight: 1.7, maxStack: 1, description: "Heavy steel with a useful hooked end." },
+    spear: { name: "Salvaged spear", icon: "SPR", kind: "weapon", mode: "melee", damage: 30, range: 88, cooldown: 0.74, noise: 34, staminaCost: 14, weight: 2, maxStack: 1, description: "Keeps teeth farther away than most tools." },
+    sledgehammer: { name: "Sledgehammer", icon: "SLG", kind: "weapon", mode: "melee", damage: 44, range: 68, cooldown: 1.05, noise: 62, staminaCost: 22, weight: 4.5, maxStack: 1, description: "Awful to carry. Worse to stand in front of." },
     pistol: { name: "9 mm pistol", icon: "9MM", kind: "weapon", mode: "ranged", damage: 42, range: 560, cooldown: 0.32, noise: 520, ammo: "ammo9", weight: 1.1, maxStack: 1, description: "Accurate enough. Every shot calls the dead." },
+    revolver: { name: ".357 revolver", icon: "357", kind: "weapon", mode: "ranged", damage: 58, range: 650, cooldown: 0.48, noise: 650, ammo: "ammo9", weight: 1.3, maxStack: 1, description: "Slow, loud, and brutally dependable." },
+    smg: { name: "9 mm submachine gun", icon: "SMG", kind: "weapon", mode: "ranged", damage: 21, range: 460, cooldown: 0.12, noise: 520, spread: 0.065, ammo: "ammo9", automatic: true, weight: 2.6, maxStack: 1, description: "Automatic fire trades ammunition for breathing room." },
     shotgun: { name: "Pump shotgun", icon: "12G", kind: "weapon", mode: "ranged", damage: 32, pellets: 6, spread: 0.18, range: 390, cooldown: 0.95, noise: 760, ammo: "shell", weight: 3.2, maxStack: 1, description: "A room clearer and horde caller." },
+    rifle: { name: "Hunting rifle", icon: "RFL", kind: "weapon", mode: "ranged", damage: 72, range: 830, cooldown: 0.82, noise: 860, spread: 0.018, ammo: "rifle_round", weight: 3.6, maxStack: 1, description: "Long reach and stopping power at a terrible volume." },
     ammo9: { name: "9 mm rounds", icon: "9MM", kind: "ammo", weight: 0.03, maxStack: 30, description: "Pistol ammunition." },
     shell: { name: "12-gauge shells", icon: "12G", kind: "ammo", weight: 0.06, maxStack: 16, description: "Shotgun ammunition." },
+    rifle_round: { name: ".308 rifle rounds", icon: "308", kind: "ammo", weight: 0.05, maxStack: 20, description: "Hunting-rifle ammunition." },
     backpack: { name: "Hiking backpack", icon: "PACK", kind: "gear", capacity: 12, weight: 0.8, maxStack: 1, description: "Adds 12 kg of carrying capacity." },
     flashlight: { name: "Flashlight", icon: "LITE", kind: "gear", light: true, weight: 0.4, maxStack: 1, description: "A narrow beam for blacked-out rooms." }
   });
@@ -40,6 +48,8 @@
       ["rag", 5],
       ["knife", 2],
       ["bat", 1],
+      ["machete", 0.45],
+      ["crowbar", 0.35],
       ["flashlight", 1],
       ["backpack", 0.5]
     ],
@@ -51,6 +61,7 @@
       ["soda", 6],
       ["rag", 2],
       ["backpack", 1],
+      ["machete", 0.35],
       ["ammo9", 0.7]
     ],
     medical: [
@@ -62,9 +73,13 @@
     ],
     police: [
       ["pistol", 2.5],
+      ["revolver", 1.1],
+      ["smg", 0.45],
       ["shotgun", 0.8],
+      ["rifle", 0.35],
       ["ammo9", 8],
       ["shell", 4],
+      ["rifle_round", 2.5],
       ["bandage", 2],
       ["bat", 2],
       ["flashlight", 3]
@@ -75,6 +90,12 @@
       ["scrap", 5],
       ["axe", 1.4],
       ["bat", 2],
+      ["crowbar", 1.5],
+      ["machete", 0.8],
+      ["spear", 0.65],
+      ["sledgehammer", 0.5],
+      ["rifle", 0.18],
+      ["rifle_round", 0.7],
       ["rag", 2]
     ],
     car: [
@@ -83,7 +104,10 @@
       ["rag", 3],
       ["scrap", 4],
       ["bat", 0.8],
-      ["ammo9", 0.5]
+      ["crowbar", 0.55],
+      ["revolver", 0.12],
+      ["ammo9", 0.5],
+      ["rifle_round", 0.18]
     ]
   });
   var RECIPES = Object.freeze({
@@ -290,7 +314,7 @@
     WATER: 4,
     TREE: 5
   });
-  var DEFAULT_WORLD_SIZE = 144;
+  var DEFAULT_WORLD_SIZE = 456;
   var TILE_SIZE = 32;
   function tileIndex(world, x, y) {
     return y * world.width + x;
@@ -370,8 +394,8 @@
     const entries = [];
     for (let i = 0, count = rng.int(minimum, maximum); i < count; i += 1) {
       const id = weightedLoot(rng, tableName);
-      const stackable = ["ammo9", "shell", "nails", "rag", "plank", "scrap", "bandage"].includes(id);
-      const qty = stackable ? rng.int(1, id === "ammo9" ? 9 : 3) : 1;
+      const stackable = ITEMS[id]?.kind === "ammo" || ["nails", "rag", "plank", "scrap", "bandage"].includes(id);
+      const qty = stackable ? rng.int(1, ITEMS[id]?.kind === "ammo" ? 9 : 3) : 1;
       const existing = entries.find((entry) => entry.id === id);
       if (existing) existing.qty += qty;
       else entries.push({ id, qty });
@@ -487,7 +511,8 @@
     }
   }
   function addCars(world, rng, roadX, roadY) {
-    const count = rng.int(18, 30);
+    const linearScale = Math.max(1, world.width / 144);
+    const count = rng.int(Math.round(18 * linearScale), Math.round(30 * linearScale));
     for (let i = 0; i < count; i += 1) {
       const vertical = rng.chance(0.5);
       const tx = vertical ? rng.pick(roadX) : rng.int(3, world.width - 4);
@@ -526,7 +551,7 @@
     return { x: cx * world.tileSize, y: cy * world.tileSize, buildingId: null };
   }
   function spawnZombies(world, rng) {
-    const total = Math.floor(world.width * world.height / 180);
+    const total = Math.min(420, Math.floor(world.width * world.height / 180));
     for (let i = 0; i < total * 5 && world.zombieSpawns.length < total; i += 1) {
       const tx = rng.int(2, world.width - 3);
       const ty = rng.int(2, world.height - 3);
@@ -547,7 +572,7 @@
     }
   }
   function generateWorld(seed, size = DEFAULT_WORLD_SIZE) {
-    const safeSize = Math.max(72, Math.min(240, Math.floor(size)));
+    const safeSize = Math.max(72, Math.min(512, Math.floor(size)));
     const rng = new RNG(seed);
     const world = {
       version: 1,
@@ -564,7 +589,8 @@
       roadX: [],
       roadY: []
     };
-    for (let i = 0; i < rng.int(2, 4); i += 1) carvePond(world, rng);
+    const featureScale = Math.max(1, safeSize / 144);
+    for (let i = 0; i < rng.int(Math.round(2 * featureScale), Math.round(4 * featureScale)); i += 1) carvePond(world, rng);
     world.roadX = roadPositions(rng, safeSize);
     world.roadY = roadPositions(rng, safeSize);
     markRoads(world, world.roadX, world.roadY);
@@ -688,7 +714,8 @@
 
   // src/game.js
   var SAVE_KEY = "hollow-county-save-v1";
-  var SAVE_VERSION = 1;
+  var SAVE_VERSION = 2;
+  var CAMERA_ZOOM = 1.38;
   var FISTS = { name: "Bare hands", mode: "melee", damage: 7, range: 40, cooldown: 0.48, noise: 25, staminaCost: 9 };
   var STREET_NAMES = ["Mercy", "Harrow", "Cinder", "Morrow", "Stillwater", "Rook", "Lantern", "Graves", "Hollow", "Ash"];
   var WEATHER = ["OVERCAST", "LIGHT RAIN", "COLD WIND", "LOW FOG", "CLEARING"];
@@ -772,6 +799,252 @@
     ctx.lineTo(x2, y2);
     ctx.stroke();
   }
+  function drawRangedWeaponModel(ctx, id, x, y, aimX, aimY) {
+    const angle = Math.atan2(aimY, aimX);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.lineCap = "round";
+    if (id === "shotgun") {
+      ctx.fillStyle = "#201b16";
+      roundedRectPath(ctx, -10, -4, 17, 8, 3);
+      ctx.fill();
+      ctx.fillStyle = "#744d2e";
+      roundedRectPath(ctx, -9, -3, 15, 6, 2);
+      ctx.fill();
+      ctx.fillStyle = "#171d1c";
+      ctx.fillRect(4, -3, 25, 4);
+      ctx.fillStyle = "#818a85";
+      ctx.fillRect(7, -2, 22, 1);
+      ctx.fillStyle = "#66452b";
+      roundedRectPath(ctx, 10, -4, 9, 7, 2);
+      ctx.fill();
+    } else if (id === "rifle") {
+      ctx.fillStyle = "#211a14";
+      roundedRectPath(ctx, -11, -4, 22, 8, 3);
+      ctx.fill();
+      ctx.fillStyle = "#765033";
+      roundedRectPath(ctx, -10, -3, 21, 6, 2);
+      ctx.fill();
+      ctx.fillStyle = "#1a201f";
+      ctx.fillRect(7, -3, 25, 4);
+      ctx.fillStyle = "#909895";
+      ctx.fillRect(10, -2, 22, 1);
+      ctx.fillStyle = "#222a28";
+      roundedRectPath(ctx, 6, -6, 14, 3, 1);
+      ctx.fill();
+      ctx.fillStyle = "#75909a";
+      ctx.fillRect(9, -5.5, 7, 1);
+    } else if (id === "smg") {
+      ctx.fillStyle = "#151b1a";
+      roundedRectPath(ctx, -7, -5, 22, 10, 3);
+      ctx.fill();
+      ctx.fillStyle = "#3f4946";
+      roundedRectPath(ctx, -4, -4, 17, 7, 2);
+      ctx.fill();
+      ctx.fillStyle = "#171d1c";
+      ctx.fillRect(13, -2, 11, 3);
+      ctx.fillStyle = "#252d2b";
+      ctx.beginPath();
+      ctx.moveTo(3, 4);
+      ctx.lineTo(10, 4);
+      ctx.lineTo(8, 14);
+      ctx.lineTo(3, 13);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#68716d";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-6, 0);
+      ctx.lineTo(-13, 5);
+      ctx.stroke();
+    } else if (id === "revolver") {
+      ctx.fillStyle = "#2a302f";
+      roundedRectPath(ctx, -2, -4, 18, 7, 2);
+      ctx.fill();
+      ctx.fillStyle = "#8d9692";
+      ctx.fillRect(4, -3, 14, 3);
+      ctx.fillStyle = "#67716d";
+      ctx.beginPath();
+      ctx.arc(3, 0, 4.5, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#60432d";
+      ctx.beginPath();
+      ctx.moveTo(-1, 3);
+      ctx.lineTo(6, 3);
+      ctx.lineTo(3, 12);
+      ctx.lineTo(-3, 10);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.fillStyle = "#171d1c";
+      roundedRectPath(ctx, -2, -4, 17, 7, 2);
+      ctx.fill();
+      ctx.fillStyle = "#747e79";
+      ctx.fillRect(1, -3, 14, 3);
+      ctx.fillStyle = "#2d3633";
+      ctx.beginPath();
+      ctx.moveTo(0, 3);
+      ctx.lineTo(7, 3);
+      ctx.lineTo(5, 11);
+      ctx.lineTo(0, 9);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  function meleeModelLength(id) {
+    return { knife: 12, machete: 21, bat: 21, axe: 20, crowbar: 22, spear: 29, sledgehammer: 22 }[id] || 17;
+  }
+  function drawMeleeWeaponModel(ctx, id, x, y, aimX, aimY) {
+    const angle = Math.atan2(aimY, aimX);
+    const length = meleeModelLength(id);
+    ctx.save();
+    ctx.translate(x, y);
+    ctx.rotate(angle);
+    ctx.lineCap = "round";
+    if (id === "knife") {
+      ctx.fillStyle = "#30251e";
+      roundedRectPath(ctx, -2, -2.5, 7, 5, 2);
+      ctx.fill();
+      ctx.fillStyle = "#d7dfda";
+      ctx.beginPath();
+      ctx.moveTo(5, -2.5);
+      ctx.lineTo(length, 0);
+      ctx.lineTo(5, 2.5);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#6f7b76";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(6, 0);
+      ctx.lineTo(length - 2, 0);
+      ctx.stroke();
+    } else if (id === "machete") {
+      ctx.fillStyle = "#2b251f";
+      roundedRectPath(ctx, -2, -3, 8, 6, 2);
+      ctx.fill();
+      ctx.fillStyle = "#aeb9b4";
+      ctx.beginPath();
+      ctx.moveTo(5, -3);
+      ctx.lineTo(length - 2, -4);
+      ctx.lineTo(length + 1, -1);
+      ctx.lineTo(length - 2, 3);
+      ctx.lineTo(5, 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#d9dfdc";
+      ctx.beginPath();
+      ctx.moveTo(7, -2);
+      ctx.lineTo(length - 3, -3);
+      ctx.lineTo(length - 1, -1.5);
+      ctx.lineTo(7, 0);
+      ctx.closePath();
+      ctx.fill();
+    } else if (id === "crowbar") {
+      ctx.strokeStyle = "#271714";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(-1, 0);
+      ctx.lineTo(length - 2, 0);
+      ctx.quadraticCurveTo(length + 3, 0, length + 2, -6);
+      ctx.stroke();
+      ctx.strokeStyle = "#8e3f35";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-1, 0);
+      ctx.lineTo(length - 2, 0);
+      ctx.quadraticCurveTo(length + 3, 0, length + 2, -6);
+      ctx.stroke();
+      ctx.strokeStyle = "#b86150";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(1, -1);
+      ctx.lineTo(length - 3, -1);
+      ctx.stroke();
+    } else if (id === "spear") {
+      ctx.strokeStyle = "#2d2117";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(-5, 0);
+      ctx.lineTo(length - 4, 0);
+      ctx.stroke();
+      ctx.strokeStyle = "#765338";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-5, 0);
+      ctx.lineTo(length - 4, 0);
+      ctx.stroke();
+      ctx.fillStyle = "#b9c3bf";
+      ctx.beginPath();
+      ctx.moveTo(length + 3, 0);
+      ctx.lineTo(length - 5, -5);
+      ctx.lineTo(length - 3, 0);
+      ctx.lineTo(length - 5, 5);
+      ctx.closePath();
+      ctx.fill();
+    } else if (id === "sledgehammer") {
+      ctx.strokeStyle = "#2d2118";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(-3, 0);
+      ctx.lineTo(length, 0);
+      ctx.stroke();
+      ctx.strokeStyle = "#775136";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-3, 0);
+      ctx.lineTo(length, 0);
+      ctx.stroke();
+      ctx.fillStyle = "#252c2b";
+      roundedRectPath(ctx, length - 3, -8, 10, 16, 2);
+      ctx.fill();
+      ctx.fillStyle = "#79817e";
+      ctx.fillRect(length - 1, -7, 5, 14);
+    } else if (id === "axe") {
+      ctx.strokeStyle = "#2d2118";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(-2, 0);
+      ctx.lineTo(length, 0);
+      ctx.stroke();
+      ctx.strokeStyle = "#704c30";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-2, 0);
+      ctx.lineTo(length, 0);
+      ctx.stroke();
+      ctx.fillStyle = "#aeb6b1";
+      roundedRectPath(ctx, length - 3, -7, 8, 14, 2);
+      ctx.fill();
+      ctx.fillStyle = "#d9dfdb";
+      ctx.beginPath();
+      ctx.moveTo(length + 1, -6);
+      ctx.lineTo(length + 8, -4);
+      ctx.lineTo(length + 8, 3);
+      ctx.lineTo(length + 1, 1);
+      ctx.closePath();
+      ctx.fill();
+    } else {
+      ctx.strokeStyle = "#2e2118";
+      ctx.lineWidth = 6;
+      ctx.beginPath();
+      ctx.moveTo(-2, 0);
+      ctx.lineTo(length, 0);
+      ctx.stroke();
+      ctx.strokeStyle = "#80593a";
+      ctx.lineWidth = id === "bat" ? 4.5 : 3.5;
+      ctx.beginPath();
+      ctx.moveTo(-2, 0);
+      ctx.lineTo(length, 0);
+      ctx.stroke();
+      ctx.fillStyle = "#b78959";
+      ctx.beginPath();
+      ctx.arc(length, 0, id === "bat" ? 2.8 : 2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
   var $ = (selector) => document.querySelector(selector);
   var clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   var distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -795,6 +1068,7 @@
       this.camera = { x: 0, y: 0, shake: 0 };
       this.timeMinutes = 8 * 60;
       this.day = 1;
+      this.lastDayPhase = "DAY";
       this.weather = "OVERCAST";
       this.lastFrame = performance.now();
       this.uiTimer = 0;
@@ -891,6 +1165,7 @@
       this.blood = [];
       this.timeMinutes = 8 * 60;
       this.day = 1;
+      this.lastDayPhase = this.dayPhase();
       this.weather = WEATHER[Math.floor(hash2D(7, 9, normalizedSeed) * WEATHER.length)];
       this.stats = { searched: 0 };
       this.camera.x = this.player.x;
@@ -1111,17 +1386,25 @@
         player.facingY = dy / length;
       }
       const equipped = ITEMS[player.equipped];
-      if (this.attackHeld && equipped?.mode === "ranged" && player.attackCooldown <= 0) this.attack();
+      if (this.attackHeld && equipped?.automatic && player.attackCooldown <= 0) this.attack();
     }
     updateSurvival(dt) {
       const player = this.player;
+      const previousPhase = this.lastDayPhase || this.dayPhase();
       this.timeMinutes += dt * 3.25;
       if (this.timeMinutes >= 1440) {
         this.timeMinutes -= 1440;
         this.day += 1;
+        this.weather = WEATHER[Math.floor(hash2D(this.day * 13, this.day * 29, this.world.seed) * WEATHER.length)];
         this.toast(`Day ${this.day}. The county population is getting restless.`, "danger");
         this.updateObjective();
       }
+      const currentPhase = this.dayPhase();
+      if (currentPhase !== previousPhase) {
+        const message = currentPhase === "NIGHT" ? "Night has fallen. The walkers are harder to track." : currentPhase === "DAWN" ? "Dawn is breaking over the county." : currentPhase === "DUSK" ? "Dusk is settling in. Find light or shelter." : "Full daylight has returned.";
+        this.toast(message, currentPhase === "NIGHT" || currentPhase === "DUSK" ? "danger" : "");
+      }
+      this.lastDayPhase = currentPhase;
       player.hunger = Math.max(0, player.hunger - dt * 0.075);
       player.thirst = Math.max(0, player.thirst - dt * 0.11);
       if (player.hunger <= 0) player.health -= dt * 1.1;
@@ -1153,6 +1436,10 @@
         zombie.wanderTimer -= dt;
         zombie.memory = Math.max(0, zombie.memory - dt);
         const playerDistance = distance(zombie, player);
+        if (playerDistance > 1450 && zombie.state === "wander") {
+          zombie.moveBlend += (0 - zombie.moveBlend) * Math.min(1, dt * 5);
+          continue;
+        }
         const wantsToMove = playerDistance >= 31 && Math.hypot(zombie.targetX - zombie.x, zombie.targetY - zombie.y) > 15;
         zombie.moveBlend += ((wantsToMove ? 1 : 0) - zombie.moveBlend) * Math.min(1, dt * 7);
         zombie.animTime += dt * (1.45 + zombie.moveBlend * (zombie.state === "chase" ? 7.4 : 4.1));
@@ -1398,7 +1685,7 @@
           return;
         }
         player.attackMode = "ranged";
-        player.attackDuration = weapon.pellets ? 0.28 : 0.18;
+        player.attackDuration = weapon.pellets || player.equipped === "rifle" ? 0.28 : 0.18;
         player.attackAnim = player.attackDuration;
         const pellets = weapon.pellets || 1;
         for (let i = 0; i < pellets; i += 1) {
@@ -1406,7 +1693,7 @@
           this.traceShot(angle, weapon);
         }
         this.emitNoise(player.x, player.y, weapon.noise, weapon.name);
-        this.camera.shake = weapon.pellets ? 10 : 5;
+        this.camera.shake = weapon.pellets ? 10 : player.equipped === "rifle" ? 8 : player.equipped === "revolver" ? 6 : 5;
         this.effects.push({ type: "muzzle", x: player.x + aim.x * 18, y: player.y + aim.y * 18, life: 0.09, maxLife: 0.09 });
         this.updateHotbar();
       } else {
@@ -1884,10 +2171,27 @@
     }
     nightStrength() {
       const hour = this.timeMinutes / 60;
-      if (hour >= 21 || hour < 5) return 0.88;
-      if (hour >= 19) return (hour - 19) / 2 * 0.88;
-      if (hour < 7) return (7 - hour) / 2 * 0.88;
+      const smooth = (value) => {
+        const t = clamp(value, 0, 1);
+        return t * t * (3 - 2 * t);
+      };
+      if (hour >= 20.5 || hour < 5) return 0.94;
+      if (hour >= 18) return smooth((hour - 18) / 2.5) * 0.94;
+      if (hour < 7.25) return (1 - smooth((hour - 5) / 2.25)) * 0.94;
       return 0;
+    }
+    twilightStrength() {
+      const hour = this.timeMinutes / 60;
+      const dawn = clamp(1 - Math.abs(hour - 6.15) / 1.35, 0, 1);
+      const dusk = clamp(1 - Math.abs(hour - 19.1) / 1.55, 0, 1);
+      return Math.max(dawn, dusk);
+    }
+    dayPhase() {
+      const hour = this.timeMinutes / 60;
+      if (hour >= 20.5 || hour < 5) return "NIGHT";
+      if (hour < 7.25) return "DAWN";
+      if (hour >= 18) return "DUSK";
+      return "DAY";
     }
     updateHUD() {
       const player = this.player;
@@ -1895,7 +2199,7 @@
       const minute = Math.floor(this.timeMinutes % 60);
       $("#dayLabel").textContent = `DAY ${this.day}`;
       $("#timeLabel").textContent = `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-      $("#weatherLabel").textContent = this.weather;
+      $("#weatherLabel").textContent = `${this.dayPhase()} \u2022 ${this.weather}`;
       for (const [name, value] of Object.entries({ health: player.health, stamina: player.stamina, hunger: player.hunger, thirst: player.thirst, infection: player.infection })) {
         $(`#${name}Bar`).style.width = `${clamp(value, 0, 100)}%`;
         $(`#${name}Value`).textContent = String(Math.round(value));
@@ -2027,6 +2331,7 @@
         version: SAVE_VERSION,
         savedAt: Date.now(),
         seed: this.world.seed,
+        worldSize: this.world.width,
         day: this.day,
         timeMinutes: this.timeMinutes,
         weather: this.weather,
@@ -2051,24 +2356,28 @@
       } catch {
         save = null;
       }
-      if (!save || save.version !== SAVE_VERSION) {
+      if (!save || ![1, SAVE_VERSION].includes(save.version)) {
         this.toastMenu("The save could not be loaded.");
         return;
       }
-      this.world = generateWorld(save.seed);
+      const migratingExpandedCounty = save.version === 1 || !save.worldSize;
+      this.world = generateWorld(save.seed, migratingExpandedCounty ? void 0 : save.worldSize);
       this.indexWorld();
-      const containers = new Map(save.containers?.map((entry) => [entry.id, entry]) || []);
-      for (const container of this.world.containers) Object.assign(container, containers.get(container.id) || {});
-      const cars = new Map(save.cars?.map((entry) => [entry.id, entry]) || []);
-      for (const car of this.world.cars) Object.assign(car, cars.get(car.id) || {});
-      this.player = save.player;
-      this.zombies = (save.zombies || []).map((zombie) => ({ ...this.makeZombie(zombie), ...zombie, path: [] }));
-      this.structures = save.structures || [];
-      this.blood = save.blood || [];
+      if (!migratingExpandedCounty) {
+        const containers = new Map(save.containers?.map((entry) => [entry.id, entry]) || []);
+        for (const container of this.world.containers) Object.assign(container, containers.get(container.id) || {});
+        const cars = new Map(save.cars?.map((entry) => [entry.id, entry]) || []);
+        for (const car of this.world.cars) Object.assign(car, cars.get(car.id) || {});
+      }
+      this.player = migratingExpandedCounty ? { ...this.makePlayer(), ...save.player || {}, x: this.world.spawn.x, y: this.world.spawn.y } : save.player;
+      this.zombies = migratingExpandedCounty ? this.world.zombieSpawns.map((spawn) => this.makeZombie(spawn)) : (save.zombies || []).map((zombie) => ({ ...this.makeZombie(zombie), ...zombie, path: [] }));
+      this.structures = migratingExpandedCounty ? [] : save.structures || [];
+      this.blood = migratingExpandedCounty ? [] : save.blood || [];
       this.noises = [];
       this.effects = [];
       this.day = save.day || 1;
       this.timeMinutes = save.timeMinutes ?? 480;
+      this.lastDayPhase = this.dayPhase();
       this.weather = save.weather || "OVERCAST";
       this.stats = save.stats || { searched: 0 };
       this.camera.x = this.player.x;
@@ -2084,7 +2393,8 @@
       this.renderRecipes();
       this.updateHotbar();
       this.updateObjective();
-      this.toast(`Survivor loaded \u2014 Day ${this.day}.`);
+      this.toast(migratingExpandedCounty ? "County expanded 10\xD7. Your survivor and gear were moved to the new safe house." : `Survivor loaded \u2014 Day ${this.day}.`);
+      if (migratingExpandedCounty) this.saveGame();
     }
     refreshSaveSummary() {
       let save;
@@ -2094,7 +2404,7 @@
         save = null;
       }
       const button = $("#continueBtn");
-      if (!save || save.version !== SAVE_VERSION) {
+      if (!save || ![1, SAVE_VERSION].includes(save.version)) {
         button.disabled = true;
         $("#saveSummary").textContent = "No living survivor found.";
         return;
@@ -2115,7 +2425,10 @@
       $("#saveSummary").textContent = message;
     }
     screenToWorld(x, y) {
-      return { x: x + this.camera.x - this.viewWidth / 2, y: y + this.camera.y - this.viewHeight / 2 };
+      return {
+        x: (x - this.viewWidth / 2) / CAMERA_ZOOM + this.camera.x,
+        y: (y - this.viewHeight / 2) / CAMERA_ZOOM + this.camera.y
+      };
     }
     worldToScreen(x, y, shakeX = 0, shakeY = 0) {
       return { x: x - this.camera.x + this.viewWidth / 2 + shakeX, y: y - this.camera.y + this.viewHeight / 2 + shakeY };
@@ -2130,10 +2443,16 @@
       ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
       ctx.fillStyle = "#111912";
       ctx.fillRect(0, 0, width, height);
-      const minTileX = clamp(Math.floor((this.camera.x - width / 2) / TILE_SIZE) - 1, 0, this.world.width - 1);
-      const maxTileX = clamp(Math.ceil((this.camera.x + width / 2) / TILE_SIZE) + 1, 0, this.world.width - 1);
-      const minTileY = clamp(Math.floor((this.camera.y - height / 2) / TILE_SIZE) - 1, 0, this.world.height - 1);
-      const maxTileY = clamp(Math.ceil((this.camera.y + height / 2) / TILE_SIZE) + 1, 0, this.world.height - 1);
+      ctx.save();
+      ctx.translate(width / 2, height / 2);
+      ctx.scale(CAMERA_ZOOM, CAMERA_ZOOM);
+      ctx.translate(-width / 2, -height / 2);
+      const halfWorldWidth = width / (2 * CAMERA_ZOOM);
+      const halfWorldHeight = height / (2 * CAMERA_ZOOM);
+      const minTileX = clamp(Math.floor((this.camera.x - halfWorldWidth) / TILE_SIZE) - 2, 0, this.world.width - 1);
+      const maxTileX = clamp(Math.ceil((this.camera.x + halfWorldWidth) / TILE_SIZE) + 2, 0, this.world.width - 1);
+      const minTileY = clamp(Math.floor((this.camera.y - halfWorldHeight) / TILE_SIZE) - 2, 0, this.world.height - 1);
+      const maxTileY = clamp(Math.ceil((this.camera.y + halfWorldHeight) / TILE_SIZE) + 2, 0, this.world.height - 1);
       for (let ty = minTileY; ty <= maxTileY; ty += 1) {
         for (let tx = minTileX; tx <= maxTileX; tx += 1) this.drawTile(ctx, tx, ty, shakeX, shakeY);
       }
@@ -2152,6 +2471,7 @@
       this.drawZombies(ctx, shakeX, shakeY);
       this.drawPlayer(ctx, shakeX, shakeY);
       this.drawEffects(ctx, shakeX, shakeY, false);
+      ctx.restore();
       this.drawLighting(ctx);
       this.drawVignette(ctx);
       ctx.restore();
@@ -2956,6 +3276,7 @@
       const hurtFlash = hurt > 0 && Math.floor(hurt * 22) % 2 === 0;
       const weapon = ITEMS[player.equipped] ?? FISTS;
       const ranged = weapon.mode === "ranged";
+      const twoHandedMelee = ["bat", "axe", "crowbar", "spear", "sledgehammer"].includes(player.equipped);
       const compress = crouching ? 5 : 0;
       const step = Math.sin(phase) * move * (sprinting ? 5.8 : crouching ? 2.7 : 4.1);
       const bob = Math.abs(Math.cos(phase)) * move * (sprinting ? 1.8 : 1.1);
@@ -3001,7 +3322,7 @@
       let rightHand = { x: bodyX + 10 + fx * Math.cos(phase) * move * 2, y: bodyY + 7 + fy * Math.cos(phase) * move * 2 };
       let weaponDir = { x: fx, y: fy };
       if (ranged) {
-        const recoil = attackCurve * (weapon.pellets ? 4 : 2);
+        const recoil = attackCurve * (weapon.pellets || player.equipped === "rifle" ? 4 : player.equipped === "revolver" ? 3 : 2);
         const reach = 10 - recoil;
         leftHand = { x: bodyX - 2 + fx * reach, y: bodyY - 1 + fy * reach * 0.62 };
         rightHand = { x: bodyX + 2 + fx * (reach + 1), y: bodyY + 1 + fy * (reach + 1) * 0.62 };
@@ -3010,7 +3331,7 @@
         const sweep = baseAngle - 1.24 + attackProgress * 2.48;
         weaponDir = { x: Math.cos(sweep), y: Math.sin(sweep) };
         rightHand = { x: bodyX + weaponDir.x * 13, y: bodyY + weaponDir.y * 9 };
-        if (player.equipped === "bat" || player.equipped === "axe") leftHand = { x: bodyX + weaponDir.x * 7 - side * 2, y: bodyY + weaponDir.y * 5 + 1 };
+        if (twoHandedMelee) leftHand = { x: bodyX + weaponDir.x * 7 - side * 2, y: bodyY + weaponDir.y * 5 + 1 };
       } else if (weapon !== FISTS) {
         rightHand = { x: bodyX + side * 7 + fx * 6, y: bodyY + 3 + fy * 5 };
       }
@@ -3038,34 +3359,11 @@
       if (ranged) {
         const startX = (leftHand.x + rightHand.x) / 2;
         const startY = (leftHand.y + rightHand.y) / 2;
-        const length = player.equipped === "shotgun" ? 22 : 13;
-        const endX = startX + fx * length;
-        const endY = startY + fy * length * 0.72;
-        drawSmoothLimb(ctx, startX, startY, endX, endY, player.equipped === "shotgun" ? 4 : 3, "#353d3a", "#161b19");
-        if (player.equipped === "shotgun") drawSmoothLimb(ctx, startX - fx * 4, startY - fy * 3, startX + fx * 5, startY + fy * 3, 5, "#6e4e31", "#2b2119");
+        drawRangedWeaponModel(ctx, player.equipped, startX, startY, fx, fy * 0.72);
       } else if (weapon !== FISTS) {
-        const length = player.equipped === "knife" ? 11 : player.equipped === "axe" ? 18 : 17;
         const startX = rightHand.x;
         const startY = rightHand.y;
-        const endX = startX + weaponDir.x * length;
-        const endY = startY + weaponDir.y * length * 0.78;
-        if (player.equipped === "knife") {
-          drawSmoothLimb(ctx, startX, startY, endX, endY, 2.2, "#d7dfda", "#29302d");
-        } else {
-          drawSmoothLimb(ctx, startX, startY, endX, endY, player.equipped === "bat" ? 4 : 3, player.equipped === "bat" ? "#80593a" : "#6f4d31", "#2d221a");
-          if (player.equipped === "axe") {
-            const angle = Math.atan2(endY - startY, endX - startX);
-            ctx.save();
-            ctx.translate(endX, endY);
-            ctx.rotate(angle);
-            ctx.fillStyle = "#aeb6b1";
-            roundedRectPath(ctx, -2, -7, 7, 14, 2);
-            ctx.fill();
-            ctx.fillStyle = "#d9dfdb";
-            ctx.fillRect(1, -6, 4, 4);
-            ctx.restore();
-          }
-        }
+        drawMeleeWeaponModel(ctx, player.equipped, startX, startY, weaponDir.x, weaponDir.y * 0.78);
       }
       const headX = bodyX + fx * 2.1;
       const headY = bodyY - 13 + fy * 1.1;
@@ -3125,26 +3423,38 @@
     }
     drawLighting(ctx) {
       const night = this.nightStrength();
-      if (night <= 0.01) return;
+      const twilight = this.twilightStrength();
+      if (night <= 0.01 && twilight <= 0.01) return;
       ctx.save();
       const player = this.worldToScreen(this.player.x, this.player.y);
-      const radius = this.player.flashlight ? 290 : 155;
-      const gradient = ctx.createRadialGradient(player.x, player.y, 20, player.x, player.y, radius);
-      gradient.addColorStop(0, `rgba(3,7,11,${night * 0.06})`);
-      gradient.addColorStop(0.52, `rgba(3,7,11,${night * 0.24})`);
-      gradient.addColorStop(1, `rgba(3,7,11,${night * 0.76})`);
-      ctx.fillStyle = gradient;
-      ctx.fillRect(0, 0, this.viewWidth, this.viewHeight);
-      if (this.player.flashlight) {
+      if (twilight > 0.01) {
+        const dusk = this.timeMinutes / 60 >= 12;
+        ctx.fillStyle = dusk ? `rgba(117,54,28,${twilight * 0.16})` : `rgba(119,82,45,${twilight * 0.11})`;
+        ctx.fillRect(0, 0, this.viewWidth, this.viewHeight);
+      }
+      if (night > 0.01) {
+        ctx.fillStyle = `rgba(2,8,18,${night * 0.24})`;
+        ctx.fillRect(0, 0, this.viewWidth, this.viewHeight);
+        const radius = (this.player.flashlight ? 300 : 168) * CAMERA_ZOOM;
+        const gradient = ctx.createRadialGradient(player.x, player.y, 18, player.x, player.y, radius);
+        gradient.addColorStop(0, `rgba(2,6,14,${night * 0.1})`);
+        gradient.addColorStop(0.45, `rgba(2,6,14,${night * 0.32})`);
+        gradient.addColorStop(1, `rgba(2,6,14,${night * 0.86})`);
+        ctx.fillStyle = gradient;
+        ctx.fillRect(0, 0, this.viewWidth, this.viewHeight);
+      }
+      if (this.player.flashlight && night > 0.08) {
         const angle = Math.atan2(this.player.facingY, this.player.facingX);
         ctx.globalCompositeOperation = "screen";
-        const beam = ctx.createRadialGradient(player.x, player.y, 20, player.x, player.y, 430);
-        beam.addColorStop(0, "rgba(221,216,172,.1)");
+        const beamRadius = 430 * CAMERA_ZOOM;
+        const beam = ctx.createRadialGradient(player.x, player.y, 20, player.x, player.y, beamRadius);
+        beam.addColorStop(0, "rgba(239,228,174,.16)");
+        beam.addColorStop(0.55, "rgba(221,216,172,.07)");
         beam.addColorStop(1, "rgba(221,216,172,0)");
         ctx.fillStyle = beam;
         ctx.beginPath();
         ctx.moveTo(player.x, player.y);
-        ctx.arc(player.x, player.y, 430, angle - 0.23, angle + 0.23);
+        ctx.arc(player.x, player.y, beamRadius, angle - 0.24, angle + 0.24);
         ctx.closePath();
         ctx.fill();
       }
