@@ -681,6 +681,34 @@
   var FISTS = { name: "Bare hands", mode: "melee", damage: 7, range: 40, cooldown: 0.48, noise: 25, staminaCost: 9 };
   var STREET_NAMES = ["Mercy", "Harrow", "Cinder", "Morrow", "Stillwater", "Rook", "Lantern", "Graves", "Hollow", "Ash"];
   var WEATHER = ["OVERCAST", "LIGHT RAIN", "COLD WIND", "LOW FOG", "CLEARING"];
+  var ZOMBIE_LOOKS = Object.freeze([
+    { skin: "#8e9270", skinDark: "#656b50", shirt: "#4f614f", shirtDark: "#354438", pants: "#2f3835", hair: "#2a241d", accent: "#713431" },
+    { skin: "#929279", skinDark: "#666754", shirt: "#4f5864", shirtDark: "#343b46", pants: "#292f39", hair: "#24211f", accent: "#754039" },
+    { skin: "#87917b", skinDark: "#5d6857", shirt: "#77756b", shirtDark: "#4e5048", pants: "#383b38", hair: "#302921", accent: "#69312f" },
+    { skin: "#989078", skinDark: "#6d6350", shirt: "#66524d", shirtDark: "#443632", pants: "#303037", hair: "#201d1c", accent: "#773634" }
+  ]);
+  function drawBlockLimb(ctx, x1, y1, x2, y2, width, color, endColor = color) {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const length = Math.hypot(dx, dy) || 1;
+    ctx.save();
+    ctx.translate(Math.round(x1), Math.round(y1));
+    ctx.rotate(Math.atan2(dy, dx));
+    ctx.fillStyle = color;
+    ctx.fillRect(0, -Math.ceil(width / 2), Math.ceil(length), Math.ceil(width));
+    ctx.restore();
+    const endSize = Math.max(2, Math.ceil(width));
+    ctx.fillStyle = endColor;
+    ctx.fillRect(Math.round(x2 - endSize / 2), Math.round(y2 - endSize / 2), endSize, endSize);
+  }
+  function fillBlockPolygon(ctx, color, points) {
+    ctx.fillStyle = color;
+    ctx.beginPath();
+    ctx.moveTo(points[0][0], points[0][1]);
+    for (let i = 1; i < points.length; i += 1) ctx.lineTo(points[i][0], points[i][1]);
+    ctx.closePath();
+    ctx.fill();
+  }
   var $ = (selector) => document.querySelector(selector);
   var clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   var distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -769,6 +797,7 @@
       this.canvas.width = Math.max(1, Math.floor(rect.width * dpr));
       this.canvas.height = Math.max(1, Math.floor(rect.height * dpr));
       this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      this.ctx.imageSmoothingEnabled = false;
       this.viewWidth = rect.width;
       this.viewHeight = rect.height;
       this.dpr = dpr;
@@ -827,12 +856,21 @@
         attackCooldown: 0,
         hurtCooldown: 0,
         noiseCooldown: 0,
+        animTime: 0,
+        moveBlend: 0,
+        movingNow: false,
+        sprintingNow: false,
+        attackAnim: 0,
+        attackDuration: 0.28,
+        attackMode: "melee",
+        hurtAnim: 0,
         kills: 0,
         distanceWalked: 0,
         flashlight: false
       };
     }
     makeZombie(spawn) {
+      const lookNoise = hash2D(Math.floor(spawn.x || 0), Math.floor(spawn.y || 0), this.world?.seed || "WALKERS");
       return {
         ...spawn,
         radius: 12,
@@ -848,7 +886,15 @@
         attackCooldown: 0,
         hitFlash: 0,
         dead: false,
-        angle: Math.random() * Math.PI * 2
+        angle: Math.random() * Math.PI * 2,
+        animTime: lookNoise * Math.PI * 2,
+        moveBlend: 0,
+        attackAnim: 0,
+        hurtAnim: 0,
+        deathAnim: 0,
+        deathSide: lookNoise > 0.5 ? 1 : -1,
+        variant: Math.min(ZOMBIE_LOOKS.length - 1, Math.floor(lookNoise * ZOMBIE_LOOKS.length)),
+        limpSide: lookNoise > 0.68 ? 1 : -1
       };
     }
     indexWorld() {
@@ -937,12 +983,25 @@
     }
     updatePlayer(dt) {
       const player = this.player;
+      player.animTime ?? (player.animTime = 0);
+      player.moveBlend ?? (player.moveBlend = 0);
+      player.attackAnim ?? (player.attackAnim = 0);
+      player.attackDuration ?? (player.attackDuration = 0.28);
+      player.attackMode ?? (player.attackMode = "melee");
+      player.hurtAnim ?? (player.hurtAnim = 0);
       player.attackCooldown = Math.max(0, player.attackCooldown - dt);
       player.hurtCooldown = Math.max(0, player.hurtCooldown - dt);
       player.noiseCooldown = Math.max(0, player.noiseCooldown - dt);
+      player.attackAnim = Math.max(0, player.attackAnim - dt);
+      player.hurtAnim = Math.max(0, player.hurtAnim - dt);
       const move = this.input.movement();
       const moving = Math.hypot(move.x, move.y) > 0.05;
       const canSprint = this.input.sprinting && !player.crouching && player.stamina > 3 && moving;
+      player.movingNow = moving;
+      player.sprintingNow = canSprint;
+      const blendTarget = moving ? 1 : 0;
+      player.moveBlend += (blendTarget - player.moveBlend) * Math.min(1, dt * 12);
+      player.animTime += dt * (moving ? canSprint ? 11.5 : player.crouching ? 5.2 : 8.2 : 2.1);
       let speed = player.crouching ? 65 : 112;
       if (canSprint) {
         speed = 176;
@@ -1000,14 +1059,26 @@
       const player = this.player;
       const night = this.nightStrength();
       for (const zombie of this.zombies) {
+        zombie.deathAnim = Math.max(0, (zombie.deathAnim ?? 0) - dt * 2.5);
         if (zombie.dead) continue;
+        zombie.animTime ?? (zombie.animTime = 0);
+        zombie.moveBlend ?? (zombie.moveBlend = 0);
+        zombie.attackAnim ?? (zombie.attackAnim = 0);
+        zombie.hurtAnim ?? (zombie.hurtAnim = 0);
+        zombie.variant ?? (zombie.variant = 0);
+        zombie.limpSide ?? (zombie.limpSide = -1);
         zombie.attackCooldown = Math.max(0, zombie.attackCooldown - dt);
         zombie.hitFlash = Math.max(0, zombie.hitFlash - dt);
+        zombie.attackAnim = Math.max(0, zombie.attackAnim - dt);
+        zombie.hurtAnim = Math.max(0, zombie.hurtAnim - dt);
         zombie.senseTimer -= dt;
         zombie.pathTimer -= dt;
         zombie.wanderTimer -= dt;
         zombie.memory = Math.max(0, zombie.memory - dt);
         const playerDistance = distance(zombie, player);
+        const wantsToMove = playerDistance >= 31 && Math.hypot(zombie.targetX - zombie.x, zombie.targetY - zombie.y) > 15;
+        zombie.moveBlend += ((wantsToMove ? 1 : 0) - zombie.moveBlend) * Math.min(1, dt * 7);
+        zombie.animTime += dt * (1.45 + zombie.moveBlend * (zombie.state === "chase" ? 7.4 : 4.1));
         if (zombie.senseTimer <= 0) {
           zombie.senseTimer = 0.18 + Math.random() * 0.16;
           const sightRange = (310 - night * 105) * (player.crouching ? 0.54 : 1) * (this.input.sprinting ? 1.18 : 1);
@@ -1045,6 +1116,7 @@
         if (playerDistance < 31) {
           zombie.state = "chase";
           zombie.memory = 7;
+          zombie.moveBlend *= Math.max(0, 1 - dt * 8);
           if (zombie.attackCooldown <= 0) this.zombieAttack(zombie);
           continue;
         }
@@ -1085,7 +1157,9 @@
         const oldY = zombie.y;
         this.moveCircle(zombie, dx * speed * dt, dy * speed * dt, true);
         zombie.angle = Math.atan2(dy, dx);
-        if (Math.hypot(zombie.x - oldX, zombie.y - oldY) < speed * dt * 0.18) {
+        const movedDistance = Math.hypot(zombie.x - oldX, zombie.y - oldY);
+        zombie.moveBlend += ((movedDistance > 0.08 ? 1 : 0) - zombie.moveBlend) * Math.min(1, dt * 11);
+        if (movedDistance < speed * dt * 0.18) {
           const barricade = this.structures.find((structure) => structure.type === "barricade" && this.circleRectOverlap(zombie.x, zombie.y, zombie.radius + 8, structure));
           if (barricade) {
             barricade.hp -= dt * (zombie.state === "chase" ? 15 : 5);
@@ -1100,8 +1174,10 @@
     }
     zombieAttack(zombie) {
       zombie.attackCooldown = 0.9 + Math.random() * 0.4;
+      zombie.attackAnim = 0.42;
       if (this.player.hurtCooldown > 0) return;
       this.player.hurtCooldown = 0.48;
+      this.player.hurtAnim = 0.3;
       const damage = 6 + Math.random() * 8;
       this.player.health = Math.max(0, this.player.health - damage);
       this.camera.shake = Math.max(this.camera.shake, 7);
@@ -1243,6 +1319,9 @@
           this.toast(`No ${ITEMS[weapon.ammo].name.toLowerCase()}.`, "danger");
           return;
         }
+        player.attackMode = "ranged";
+        player.attackDuration = weapon.pellets ? 0.28 : 0.18;
+        player.attackAnim = player.attackDuration;
         const pellets = weapon.pellets || 1;
         for (let i = 0; i < pellets; i += 1) {
           const angle = Math.atan2(aim.y, aim.x) + (Math.random() - 0.5) * (weapon.spread || 0.035);
@@ -1253,6 +1332,9 @@
         this.effects.push({ type: "muzzle", x: player.x + aim.x * 18, y: player.y + aim.y * 18, life: 0.09, maxLife: 0.09 });
         this.updateHotbar();
       } else {
+        player.attackMode = "melee";
+        player.attackDuration = clamp(weapon.cooldown * 0.58, 0.22, 0.42);
+        player.attackAnim = player.attackDuration;
         this.emitNoise(player.x, player.y, weapon.noise, "melee");
         let best = null;
         let bestDistance = Infinity;
@@ -1303,6 +1385,7 @@
     damageZombie(zombie, amount, knockX = 0, knockY = 0) {
       zombie.health -= amount;
       zombie.hitFlash = 0.1;
+      zombie.hurtAnim = 0.28;
       zombie.x += knockX;
       zombie.y += knockY;
       zombie.state = "chase";
@@ -1312,6 +1395,8 @@
       this.addBlood(zombie.x, zombie.y, 3);
       if (zombie.health <= 0 && !zombie.dead) {
         zombie.dead = true;
+        zombie.deathAnim = 1;
+        zombie.attackAnim = 0;
         zombie.remove = false;
         this.player.kills += 1;
         this.addBlood(zombie.x, zombie.y, 8);
@@ -2121,80 +2206,228 @@
     drawZombies(ctx, shakeX, shakeY) {
       for (const zombie of this.zombies) {
         const p = this.worldToScreen(zombie.x, zombie.y, shakeX, shakeY);
-        if (p.x < -40 || p.y < -40 || p.x > this.viewWidth + 40 || p.y > this.viewHeight + 40) continue;
+        if (p.x < -48 || p.y < -48 || p.x > this.viewWidth + 48 || p.y > this.viewHeight + 48) continue;
+        const look = ZOMBIE_LOOKS[(zombie.variant ?? 0) % ZOMBIE_LOOKS.length];
+        const phase = (zombie.animTime ?? 0) + (zombie.variant ?? 0) * 0.73;
+        const move = clamp(zombie.moveBlend ?? 0, 0, 1);
+        const chasing = zombie.state === "chase";
+        const stride = Math.sin(phase) * move * (chasing ? 5.2 : 3.3);
+        const sway = Math.sin(phase * 0.5) * move * (chasing ? 1.4 : 2.1);
+        const attackRemaining = clamp((zombie.attackAnim ?? 0) / 0.42, 0, 1);
+        const attackProgress = 1 - attackRemaining;
+        const lunge = Math.sin(attackProgress * Math.PI) * (attackRemaining > 0 ? 5 : 0);
+        const hurt = clamp((zombie.hurtAnim ?? 0) / 0.28, 0, 1);
+        const flashing = zombie.hitFlash > 0;
         ctx.save();
         ctx.translate(p.x, p.y);
-        ctx.rotate(zombie.angle + Math.PI / 2);
+        ctx.rotate((zombie.angle ?? 0) + Math.PI / 2);
         if (zombie.dead) {
-          ctx.rotate(1.2);
-          ctx.globalAlpha = 0.65;
+          const fall = 1 - clamp(zombie.deathAnim ?? 0, 0, 1);
+          const side = zombie.deathSide ?? 1;
+          ctx.rotate(side * (0.2 + fall * 1.05));
+          ctx.translate(side * fall * 5, fall * 4);
+          ctx.globalAlpha = 0.86 - fall * 0.18;
+          ctx.fillStyle = "rgba(0,0,0,.3)";
+          ctx.beginPath();
+          ctx.ellipse(side * 3, 5, 18, 7, 0, 0, Math.PI * 2);
+          ctx.fill();
+          const spread = fall * side;
+          drawBlockLimb(ctx, -4, 5, -8 - spread * 6, 15 - fall * 2, 5, look.pants, "#202522");
+          drawBlockLimb(ctx, 4, 5, 8 + spread * 4, 15 + fall * 2, 5, look.pants, "#202522");
+          fillBlockPolygon(ctx, look.shirtDark, [[-8, -6], [7, -7], [9, 7], [-8, 8]]);
+          fillBlockPolygon(ctx, look.shirt, [[-6, -5], [5, -5], [7, 5], [-6, 6]]);
+          drawBlockLimb(ctx, -6, -3, -12 - spread * 4, 3 + fall * 4, 4, look.shirtDark, look.skinDark);
+          drawBlockLimb(ctx, 6, -3, 12 + spread * 5, -1 - fall * 3, 4, look.shirtDark, look.skinDark);
+          ctx.fillStyle = look.skinDark;
+          ctx.fillRect(-5 + spread * 3, -15 + fall * 4, 11, 10);
+          ctx.fillStyle = look.skin;
+          ctx.fillRect(-4 + spread * 3, -15 + fall * 4, 9, 7);
+          ctx.fillStyle = look.hair;
+          ctx.fillRect(-5 + spread * 3, -8 + fall * 4, 11, 3);
+          ctx.fillStyle = look.accent;
+          ctx.fillRect(-1 + spread * 3, -14 + fall * 4, 3, 2);
+          ctx.restore();
+          continue;
         }
+        ctx.translate(sway, -lunge + Math.round(Math.cos(phase * 2) * move));
+        ctx.rotate((zombie.deathSide ?? 1) * hurt * 0.2);
         ctx.fillStyle = "rgba(0,0,0,.28)";
         ctx.beginPath();
-        ctx.ellipse(3, 8, 13, 7, 0, 0, Math.PI * 2);
+        ctx.ellipse(2, 10, 14, 7, 0, 0, Math.PI * 2);
         ctx.fill();
-        ctx.strokeStyle = zombie.hitFlash > 0 ? "#f1ddd0" : "#5f6952";
-        ctx.lineWidth = 5;
-        ctx.beginPath();
-        ctx.moveTo(-5, 6);
-        ctx.lineTo(-8, 16);
-        ctx.moveTo(5, 6);
-        ctx.lineTo(8, 16);
-        ctx.stroke();
-        ctx.fillStyle = zombie.hitFlash > 0 ? "#e7d5c9" : `hsl(${62 + zombie.hue} 14% 32%)`;
-        ctx.beginPath();
-        ctx.ellipse(0, 2, 10, 13, 0, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#91886c";
-        ctx.beginPath();
-        ctx.arc(0, -11, 7, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "#241d18";
-        ctx.fillRect(-4, -13, 2, 2);
-        ctx.fillRect(3, -13, 2, 2);
-        if (zombie.state === "chase" && !zombie.dead) {
+        const limpLeft = (zombie.limpSide ?? -1) < 0;
+        const leftStride = stride * (limpLeft ? 0.42 : 1);
+        const rightStride = -stride * (limpLeft ? 1 : 0.42);
+        drawBlockLimb(ctx, -4, 5, -5 - sway * 0.25, 16 + leftStride, 5, flashing ? "#d7cec2" : look.pants, "#202522");
+        drawBlockLimb(ctx, 4, 5, 5 + sway * 0.25, 16 + rightStride, 5, flashing ? "#d7cec2" : look.pants, "#202522");
+        fillBlockPolygon(ctx, flashing ? "#eadfd3" : look.shirtDark, [[-9, -7], [8, -7], [9, 7], [-8, 8]]);
+        fillBlockPolygon(ctx, flashing ? "#f1e6da" : look.shirt, [[-7, -6], [6, -6], [7, 5], [-6, 6]]);
+        const armReach = chasing ? 1 : 0;
+        const attackReach = attackRemaining > 0 ? Math.sin(attackProgress * Math.PI) : 0;
+        const leftHandX = -10 + Math.sin(phase) * move * 2 + attackReach * 5;
+        const rightHandX = 10 - Math.sin(phase) * move * 2 - attackReach * 5;
+        const idleDrag = Math.cos(phase) * move * 3;
+        const leftHandY = armReach ? -10 - attackReach * 7 : 4 + idleDrag;
+        const rightHandY = armReach ? -12 - attackReach * 7 : 7 - idleDrag;
+        drawBlockLimb(ctx, -7, -4, leftHandX, leftHandY, 4, flashing ? "#eadfd3" : look.shirtDark, flashing ? "#f4e6d8" : look.skinDark);
+        drawBlockLimb(ctx, 7, -4, rightHandX, rightHandY, 4, flashing ? "#eadfd3" : look.shirtDark, flashing ? "#f4e6d8" : look.skinDark);
+        if ((zombie.variant ?? 0) === 0) {
+          ctx.fillStyle = "rgba(199,164,77,.48)";
+          ctx.fillRect(-6, 1, 13, 2);
+        } else if ((zombie.variant ?? 0) === 1) {
+          ctx.fillStyle = "#737d86";
+          ctx.fillRect(-1, -5, 2, 10);
+          ctx.fillStyle = look.accent;
+          ctx.fillRect(4, -4, 3, 3);
+        } else if ((zombie.variant ?? 0) === 2) {
+          ctx.fillStyle = look.skinDark;
+          ctx.fillRect(3, 3, 4, 4);
+          ctx.fillStyle = look.accent;
+          ctx.fillRect(-6, -1, 4, 2);
+        } else {
+          ctx.fillStyle = "#25282b";
+          ctx.fillRect(-1, -5, 2, 9);
+        }
+        ctx.fillStyle = flashing ? "#f3e6d8" : look.skinDark;
+        ctx.fillRect(-6, -17, 12, 11);
+        ctx.fillStyle = flashing ? "#fff0e2" : look.skin;
+        ctx.fillRect(-5, -17, 10, 8);
+        ctx.fillStyle = look.hair;
+        ctx.fillRect(-6, -9, 12, 3);
+        ctx.fillRect((zombie.variant ?? 0) % 2 ? -6 : 3, -15, 3, 6);
+        ctx.fillStyle = "#25231e";
+        ctx.fillRect(-4, -16, 2, 2);
+        ctx.fillRect(3, -16, 2, 2);
+        ctx.fillStyle = look.accent;
+        ctx.fillRect((zombie.variant ?? 0) % 2 ? -2 : 1, -12, 4, 2);
+        if (chasing) {
           ctx.fillStyle = "rgba(175,64,57,.65)";
-          ctx.fillRect(-8, -23, 16 * clamp(zombie.health / zombie.maxHealth, 0, 1), 2);
+          ctx.fillRect(-9, -25, 18 * clamp(zombie.health / zombie.maxHealth, 0, 1), 2);
         }
         ctx.restore();
       }
     }
     drawPlayer(ctx, shakeX, shakeY) {
-      const p = this.worldToScreen(this.player.x, this.player.y, shakeX, shakeY);
-      const angle = Math.atan2(this.player.facingY, this.player.facingX) + Math.PI / 2;
+      const player = this.player;
+      const p = this.worldToScreen(player.x, player.y, shakeX, shakeY);
+      const angle = Math.atan2(player.facingY, player.facingX) + Math.PI / 2;
+      const phase = player.animTime ?? 0;
+      const move = clamp(player.moveBlend ?? 0, 0, 1);
+      const sprinting = Boolean(player.sprintingNow);
+      const crouchDrop = player.crouching ? 4 : 0;
+      const stride = Math.sin(phase) * move * (sprinting ? 6.2 : player.crouching ? 2.7 : 4.4);
+      const bodyBob = Math.round(Math.abs(Math.cos(phase)) * move * (sprinting ? 2 : 1));
+      const attackDuration = player.attackDuration || 0.28;
+      const attackRemaining = clamp((player.attackAnim ?? 0) / attackDuration, 0, 1);
+      const attackProgress = 1 - attackRemaining;
+      const attackCurve = attackRemaining > 0 ? Math.sin(attackProgress * Math.PI) : 0;
+      const hurt = clamp((player.hurtAnim ?? 0) / 0.3, 0, 1);
+      const hurtFlash = hurt > 0 && Math.floor(hurt * 22) % 2 === 0;
+      const weapon = ITEMS[player.equipped] ?? FISTS;
+      const ranged = weapon.mode === "ranged";
       ctx.save();
       ctx.translate(p.x, p.y);
       ctx.rotate(angle);
+      ctx.translate(0, bodyBob + hurt * 3);
+      ctx.rotate(Math.sin(hurt * Math.PI) * -0.13);
       ctx.fillStyle = "rgba(0,0,0,.3)";
       ctx.beginPath();
-      ctx.ellipse(3, 8, 13, 7, 0, 0, Math.PI * 2);
+      ctx.ellipse(2, 11 + crouchDrop * 0.35, sprinting ? 16 : 14, player.crouching ? 8 : 7, 0, 0, Math.PI * 2);
       ctx.fill();
-      ctx.strokeStyle = "#252d29";
-      ctx.lineWidth = 5;
-      ctx.beginPath();
-      ctx.moveTo(-5, 7);
-      ctx.lineTo(-7, 17);
-      ctx.moveTo(5, 7);
-      ctx.lineTo(7, 17);
-      ctx.stroke();
-      ctx.fillStyle = this.player.crouching ? "#586a58" : "#667b65";
-      ctx.beginPath();
-      ctx.ellipse(0, 2, 10, this.player.crouching ? 10 : 13, 0, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.fillStyle = "#bf9b7c";
-      ctx.beginPath();
-      ctx.arc(0, -11, 7, 0, Math.PI * 2);
-      ctx.fill();
-      ctx.strokeStyle = "#d6c2a2";
-      ctx.lineWidth = 3;
-      ctx.beginPath();
-      ctx.moveTo(0, -1);
-      ctx.lineTo(0, -22);
-      ctx.stroke();
-      ctx.fillStyle = "#d6c2a2";
-      ctx.beginPath();
-      ctx.arc(0, -23, 2.5, 0, Math.PI * 2);
-      ctx.fill();
+      const legY = player.crouching ? 13 : 17;
+      drawBlockLimb(ctx, -4, 5 + crouchDrop, -5, legY + stride, 5, hurtFlash ? "#efe4d8" : "#27322f", "#171d1b");
+      drawBlockLimb(ctx, 4, 5 + crouchDrop, 5, legY - stride, 5, hurtFlash ? "#efe4d8" : "#303b37", "#171d1b");
+      const hasBackpack = player.inventory?.some((entry) => entry.id === "backpack" && entry.qty > 0);
+      if (hasBackpack) {
+        ctx.fillStyle = "#343a2e";
+        ctx.fillRect(-9, -2 + crouchDrop, 18, 12);
+        ctx.fillStyle = "#535b42";
+        ctx.fillRect(-7, 0 + crouchDrop, 14, 7);
+        ctx.fillStyle = "#a68a55";
+        ctx.fillRect(-1, 5 + crouchDrop, 3, 3);
+      }
+      fillBlockPolygon(ctx, hurtFlash ? "#f0e3d7" : "#394a3e", [[-9, -7 + crouchDrop], [9, -7 + crouchDrop], [8, 8 + crouchDrop], [-8, 8 + crouchDrop]]);
+      fillBlockPolygon(ctx, hurtFlash ? "#fff0e3" : player.crouching ? "#536552" : "#60775f", [[-7, -6 + crouchDrop], [7, -6 + crouchDrop], [6, 6 + crouchDrop], [-6, 6 + crouchDrop]]);
+      ctx.fillStyle = "#8ca080";
+      ctx.fillRect(-1, -5 + crouchDrop, 2, 10);
+      ctx.fillStyle = "#b59b63";
+      ctx.fillRect(3, -4 + crouchDrop, 3, 3);
+      const skin = hurtFlash ? "#fff1e4" : "#bf9677";
+      const sleeve = hurtFlash ? "#f0e3d7" : "#4f6552";
+      let leftHand = { x: -10, y: 3 + Math.cos(phase) * move * 3 + crouchDrop };
+      let rightHand = { x: 10, y: 3 - Math.cos(phase) * move * 3 + crouchDrop };
+      if (ranged) {
+        const recoil = attackCurve * (weapon.pellets ? 4 : 2);
+        leftHand = { x: -2, y: -12 + crouchDrop + recoil };
+        rightHand = { x: 3, y: -11 + crouchDrop + recoil };
+      } else if (attackRemaining > 0) {
+        const sweep = -1.12 + attackProgress * 2.24;
+        rightHand = {
+          x: Math.sin(sweep) * 14,
+          y: -Math.cos(sweep) * 14 - 1 + crouchDrop
+        };
+        if (player.equipped === "bat" || player.equipped === "axe") {
+          leftHand = { x: rightHand.x * 0.56 - 2, y: rightHand.y * 0.56 + crouchDrop * 0.44 };
+        }
+      } else if (weapon !== FISTS) {
+        rightHand = { x: 8, y: -9 + crouchDrop };
+      }
+      drawBlockLimb(ctx, -7, -4 + crouchDrop, leftHand.x, leftHand.y, 4, sleeve, skin);
+      drawBlockLimb(ctx, 7, -4 + crouchDrop, rightHand.x, rightHand.y, 4, sleeve, skin);
+      if (ranged) {
+        const recoil = attackCurve * (weapon.pellets ? 4 : 2);
+        if (player.equipped === "shotgun") {
+          ctx.fillStyle = "#4a3425";
+          ctx.fillRect(-3, -10 + crouchDrop + recoil, 6, 10);
+          ctx.fillStyle = "#242a29";
+          ctx.fillRect(-2, -27 + crouchDrop + recoil, 5, 19);
+          ctx.fillStyle = "#7a674a";
+          ctx.fillRect(-3, -18 + crouchDrop + recoil, 6, 5);
+        } else {
+          ctx.fillStyle = "#252b2b";
+          ctx.fillRect(-2, -22 + crouchDrop + recoil, 5, 13);
+          ctx.fillStyle = "#727a75";
+          ctx.fillRect(-1, -24 + crouchDrop + recoil, 3, 5);
+        }
+      } else if (weapon !== FISTS) {
+        let dx = rightHand.x;
+        let dy = rightHand.y - crouchDrop;
+        const length = Math.hypot(dx, dy) || 1;
+        dx /= length;
+        dy /= length;
+        const reach = player.equipped === "knife" ? 9 : player.equipped === "axe" ? 15 : 14;
+        const endX = rightHand.x + dx * reach;
+        const endY = rightHand.y + dy * reach;
+        if (player.equipped === "knife") {
+          drawBlockLimb(ctx, rightHand.x, rightHand.y, endX, endY, 2, "#c7d0ca", "#e4ebe5");
+          ctx.fillStyle = "#302a25";
+          ctx.fillRect(Math.round(rightHand.x - 2), Math.round(rightHand.y - 2), 4, 4);
+        } else {
+          drawBlockLimb(ctx, rightHand.x, rightHand.y, endX, endY, player.equipped === "bat" ? 4 : 3, player.equipped === "bat" ? "#785337" : "#694a30");
+          if (player.equipped === "axe") {
+            ctx.save();
+            ctx.translate(endX, endY);
+            ctx.rotate(Math.atan2(dy, dx));
+            ctx.fillStyle = "#9aa19d";
+            ctx.fillRect(-2, -6, 6, 12);
+            ctx.fillStyle = "#c2c8c3";
+            ctx.fillRect(1, -6, 4, 4);
+            ctx.restore();
+          }
+        }
+      }
+      ctx.fillStyle = hurtFlash ? "#f8e9dc" : "#9d735b";
+      ctx.fillRect(-6, -18 + crouchDrop, 12, 11);
+      ctx.fillStyle = skin;
+      ctx.fillRect(-5, -18 + crouchDrop, 10, 8);
+      ctx.fillStyle = "#29231f";
+      ctx.fillRect(-6, -10 + crouchDrop, 12, 3);
+      ctx.fillRect(-6, -16 + crouchDrop, 3, 7);
+      ctx.fillStyle = "#2b2924";
+      ctx.fillRect(-3, -17 + crouchDrop, 2, 2);
+      ctx.fillRect(2, -17 + crouchDrop, 2, 2);
+      ctx.fillStyle = "#8f5142";
+      ctx.fillRect(-1, -13 + crouchDrop, 3, 1);
       ctx.restore();
     }
     drawEffects(ctx, shakeX, shakeY, behind) {
