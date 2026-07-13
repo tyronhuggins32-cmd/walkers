@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
+  <meta name="theme-color" content="#090d0b">
+  <meta name="description" content="Hollow County is a procedural top-down zombie survival game.">
+  <title>Hollow County — Procedural Zombie Survival</title>
+  <link rel="stylesheet" href="./styles.css">
+</head>
+<body>
+  <div id="boot" class="boot-screen">
+    <div class="boot-mark">HC</div>
+    <p>Surveying county roads…</p>
+  </div>
+
+  <main id="menu" class="menu-screen hidden" aria-label="Main menu">
+    <div class="menu-grain"></div>
+    <section class="title-block">
+      <p class="eyebrow"><span class="status-dot"></span> COUNTY EMERGENCY FREQUENCY 88.7</p>
+      <h1>HOLLOW<br><span>COUNTY</span></h1>
+      <p class="tagline">Every road is new. Every sound carries. Death remembers your name.</p>
+      <div class="rule"></div>
+      <p class="dispatch">DAY ZERO // THE EVACUATION NEVER CAME</p>
+    </section>
+
+    <section class="start-card">
+      <div class="card-heading">
+        <div>
+          <p class="label">NEW SURVIVOR</p>
+          <h2>Generate a county</h2>
+        </div>
+        <span class="version">BUILD 1.0</span>
+      </div>
+      <label class="seed-field">
+        <span>WORLD SEED</span>
+        <div>
+          <input id="seedInput" maxlength="24" autocomplete="off" spellcheck="false" aria-label="World seed">
+          <button id="randomSeedBtn" class="icon-button" type="button" title="Random seed">↻</button>
+        </div>
+      </label>
+      <button id="newGameBtn" class="primary-button" type="button"><span>BEGIN NEW RUN</span><b>→</b></button>
+      <button id="continueBtn" class="secondary-button" type="button" disabled>CONTINUE SAVED SURVIVOR</button>
+      <p id="saveSummary" class="save-summary">No living survivor found.</p>
+
+      <div class="feature-grid" aria-label="Game features">
+        <div><b>PROCEDURAL</b><span>Roads, homes & loot</span></div>
+        <div><b>SURVIVAL</b><span>Hunger, thirst & infection</span></div>
+        <div><b>UNDEAD AI</b><span>Sight, hearing & memory</span></div>
+        <div><b>PERSISTENT</b><span>Build, save & return</span></div>
+      </div>
+      <p class="original-note">An original game with original code and visuals. No external assets required.</p>
+    </section>
+  </main>
+
+  <main id="game" class="game-screen hidden" aria-label="Hollow County game">
+    <canvas id="gameCanvas" aria-label="Game world"></canvas>
+
+    <header class="hud-top">
+      <div class="day-readout">
+        <span id="dayLabel">DAY 1</span>
+        <strong id="timeLabel">08:00</strong>
+        <small id="weatherLabel">OVERCAST</small>
+      </div>
+      <div class="location-readout">
+        <span id="locationLabel">UNKNOWN ROAD</span>
+        <small id="seedLabel">SEED —</small>
+      </div>
+      <div class="hud-actions">
+        <button id="inventoryBtn" type="button" title="Inventory (Tab)">PACK <kbd>TAB</kbd></button>
+        <button id="craftBtn" type="button" title="Crafting (B)">BUILD <kbd>B</kbd></button>
+        <button id="pauseBtn" type="button" title="Pause (Escape)">II</button>
+      </div>
+    </header>
+
+    <aside class="vitals" aria-label="Survivor vitals">
+      <div class="vital health"><span>HEALTH</span><div><i id="healthBar"></i></div><b id="healthValue">100</b></div>
+      <div class="vital stamina"><span>STAMINA</span><div><i id="staminaBar"></i></div><b id="staminaValue">100</b></div>
+      <div class="vital hunger"><span>HUNGER</span><div><i id="hungerBar"></i></div><b id="hungerValue">100</b></div>
+      <div class="vital thirst"><span>THIRST</span><div><i id="thirstBar"></i></div><b id="thirstValue">100</b></div>
+      <div id="infectionVital" class="vital infection hidden"><span>INFECTION</span><div><i id="infectionBar"></i></div><b id="infectionValue">0</b></div>
+    </aside>
+
+    <aside class="minimap-wrap" aria-label="Local map">
+      <canvas id="minimap" width="164" height="164"></canvas>
+      <span>LOCAL SURVEY</span>
+    </aside>
+
+    <div id="objective" class="objective">
+      <span>FIRST HOURS</span>
+      <p>Search your safe house. Find water and a weapon.</p>
+    </div>
+
+    <div id="interactPrompt" class="interact-prompt hidden"><kbd>E</kbd><span>SEARCH</span></div>
+    <div id="toastStack" class="toast-stack" aria-live="polite"></div>
+
+    <div id="hotbar" class="hotbar" aria-label="Equipped items"></div>
+
+    <section id="inventoryPanel" class="side-panel hidden" aria-label="Inventory">
+      <header><div><p class="label">SURVIVOR GEAR</p><h2>Inventory</h2></div><button class="close-panel" data-close="inventoryPanel" type="button">×</button></header>
+      <div class="weight"><span>CARRY WEIGHT</span><b id="weightValue">0 / 18 kg</b><div><i id="weightBar"></i></div></div>
+      <div id="inventoryList" class="item-list"></div>
+      <footer><span>Click an item to use or equip it.</span><button id="dropItemBtn" type="button" disabled>DROP</button></footer>
+    </section>
+
+    <section id="lootPanel" class="side-panel loot-panel hidden" aria-label="Loot container">
+      <header><div><p class="label">SEARCH RESULT</p><h2 id="lootTitle">Cabinet</h2></div><button class="close-panel" data-close="lootPanel" type="button">×</button></header>
+      <div id="lootList" class="item-list"></div>
+      <button id="takeAllBtn" class="primary-button compact" type="button">TAKE ALL</button>
+    </section>
+
+    <section id="craftPanel" class="side-panel hidden" aria-label="Crafting">
+      <header><div><p class="label">FIELD CRAFTING</p><h2>Build & craft</h2></div><button class="close-panel" data-close="craftPanel" type="button">×</button></header>
+      <p class="panel-copy">Use scavenged material to stay alive. Placed structures remain when you save.</p>
+      <div id="recipeList" class="recipe-list"></div>
+    </section>
+
+    <section id="pausePanel" class="modal-card hidden" aria-label="Paused">
+      <p class="eyebrow">RADIO SILENCE</p>
+      <h2>Game paused</h2>
+      <button id="resumeBtn" class="primary-button" type="button">RETURN TO COUNTY</button>
+      <button id="saveQuitBtn" class="secondary-button" type="button">SAVE & QUIT TO MENU</button>
+      <button id="abandonBtn" class="danger-button" type="button">ABANDON THIS RUN</button>
+      <div class="control-guide">
+        <span><kbd>WASD</kbd> Move</span><span><kbd>SHIFT</kbd> Sprint</span><span><kbd>C</kbd> Crouch</span>
+        <span><kbd>E</kbd> Search</span><span><kbd>CLICK</kbd> Attack</span><span><kbd>1–5</kbd> Equip</span>
+      </div>
+    </section>
+
+    <section id="deathPanel" class="death-card hidden" aria-label="Run ended">
+      <p class="eyebrow">SURVIVOR RECORD CLOSED</p>
+      <h2>You became part of the county.</h2>
+      <div class="death-stats"><span><b id="deathDays">1</b>days</span><span><b id="deathKills">0</b>kills</span><span><b id="deathLooted">0</b>places searched</span></div>
+      <button id="newRunBtn" class="primary-button" type="button">GENERATE ANOTHER COUNTY</button>
+      <button id="deathMenuBtn" class="secondary-button" type="button">MAIN MENU</button>
+    </section>
+
+    <div id="mobileControls" class="mobile-controls" aria-label="Touch controls">
+      <div id="joystick" class="joystick"><div id="joystickThumb"></div><span>MOVE</span></div>
+      <div class="touch-actions">
+        <button data-action="crouch" class="touch-small" type="button">SNEAK</button>
+        <button data-action="interact" class="touch-mid" type="button">SEARCH</button>
+        <button data-action="attack" class="touch-main" type="button">ATTACK</button>
+      </div>
+    </div>
+  </main>
+
+  <script src="./game.js"></script>
+</body>
+</html>
