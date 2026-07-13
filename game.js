@@ -415,14 +415,25 @@
     }
     const containerCount = type === "warehouse" ? rng.int(3, 6) : rng.int(2, 4);
     for (let i = 0; i < containerCount; i += 1) {
-      const tx = rng.int(rect.x + 1, rect.x + rect.w - 2);
-      const ty = rng.int(rect.y + 1, rect.y + rect.h - 2);
+      const rollX = rng.int(rect.x + 1, rect.x + rect.w - 2);
+      const rollY = rng.int(rect.y + 1, rect.y + rect.h - 2);
+      const sides = ["north", "east", "south", "west"];
+      const side2 = sides[Math.abs(rollX + rollY + i) % sides.length];
+      const tx = side2 === "west" ? rect.x + 1 : side2 === "east" ? rect.x + rect.w - 2 : rollX;
+      const ty = side2 === "north" ? rect.y + 1 : side2 === "south" ? rect.y + rect.h - 2 : rollY;
+      let kind = "cupboard";
+      if (type === "house") kind = i === 0 ? "fridge" : i % 2 ? "dresser" : "cupboard";
+      else if (type === "store") kind = i % 2 ? "counter" : "shelf";
+      else if (type === "clinic") kind = i % 2 ? "medical_cabinet" : "supply_cart";
+      else if (type === "police") kind = i % 2 ? "desk" : "locker";
+      else if (type === "warehouse") kind = "crate";
       world.containers.push({
         id: `${id}-c${i}`,
         buildingId: id,
         x: (tx + 0.5) * world.tileSize,
         y: (ty + 0.5) * world.tileSize,
-        kind: type === "house" && i === 0 ? "fridge" : type === "warehouse" ? "crate" : "cabinet",
+        kind,
+        side: side2,
         searched: false,
         loot: createLoot(rng, BUILDING_TYPES[type].loot, 1, type === "police" ? 5 : 4)
       });
@@ -709,6 +720,58 @@
     ctx.closePath();
     ctx.fill();
   }
+  var FURNITURE_SIZES = Object.freeze({
+    fridge: [24, 27],
+    cupboard: [27, 19],
+    dresser: [28, 19],
+    counter: [30, 20],
+    shelf: [29, 17],
+    medical_cabinet: [25, 19],
+    supply_cart: [25, 18],
+    locker: [24, 20],
+    desk: [30, 20],
+    crate: [24, 24]
+  });
+  function furnitureSize(container) {
+    const base = FURNITURE_SIZES[container.kind] || [26, 20];
+    const vertical = container.side === "east" || container.side === "west";
+    return { w: vertical ? base[1] : base[0], h: vertical ? base[0] : base[1] };
+  }
+  function furnitureDistance(container, point) {
+    const { w, h } = furnitureSize(container);
+    const dx = Math.max(0, Math.abs(container.x - point.x) - w / 2);
+    const dy = Math.max(0, Math.abs(container.y - point.y) - h / 2);
+    return Math.hypot(dx, dy);
+  }
+  function roundedRectPath(ctx, x, y, width, height, radius) {
+    const r = Math.min(radius, width / 2, height / 2);
+    ctx.beginPath();
+    ctx.moveTo(x + r, y);
+    ctx.lineTo(x + width - r, y);
+    ctx.quadraticCurveTo(x + width, y, x + width, y + r);
+    ctx.lineTo(x + width, y + height - r);
+    ctx.quadraticCurveTo(x + width, y + height, x + width - r, y + height);
+    ctx.lineTo(x + r, y + height);
+    ctx.quadraticCurveTo(x, y + height, x, y + height - r);
+    ctx.lineTo(x, y + r);
+    ctx.quadraticCurveTo(x, y, x + r, y);
+    ctx.closePath();
+  }
+  function drawSmoothLimb(ctx, x1, y1, x2, y2, width, color, outline = "#202621") {
+    ctx.lineCap = "round";
+    ctx.strokeStyle = outline;
+    ctx.lineWidth = width + 2;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = width;
+    ctx.beginPath();
+    ctx.moveTo(x1, y1);
+    ctx.lineTo(x2, y2);
+    ctx.stroke();
+  }
   var $ = (selector) => document.querySelector(selector);
   var clamp = (value, min, max) => Math.max(min, Math.min(max, value));
   var distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
@@ -785,7 +848,21 @@
         $("#seedInput").value = randomSeed();
       });
       $("#deathMenuBtn").addEventListener("click", () => this.showMenu());
-      $("#takeAllBtn").addEventListener("click", () => this.takeAllLoot());
+      const takeAllButton = $("#takeAllBtn");
+      let takeAllTouchHandled = false;
+      takeAllButton.addEventListener("pointerup", (event) => {
+        if (event.pointerType !== "touch") return;
+        event.preventDefault();
+        takeAllTouchHandled = true;
+        this.takeAllLoot();
+        setTimeout(() => {
+          takeAllTouchHandled = false;
+        }, 420);
+      });
+      takeAllButton.addEventListener("click", () => {
+        if (takeAllTouchHandled) return;
+        this.takeAllLoot();
+      });
       $("#dropItemBtn").addEventListener("click", () => this.dropSelectedItem());
       document.querySelectorAll("[data-close]").forEach((button) => {
         button.addEventListener("click", () => this.closePanel(button.dataset.close));
@@ -1221,6 +1298,7 @@
         effect.y += (effect.vy || 0) * dt;
       }
       this.effects = this.effects.filter((effect) => effect.life > 0);
+      for (const container of this.world.containers) container.openAnim = Math.max(0, (container.openAnim || 0) - dt * 1.8);
       this.camera.shake = Math.max(0, this.camera.shake - dt * 22);
     }
     updateCamera(dt) {
@@ -1411,14 +1489,15 @@
       }
       if (this.blood.length > 260) this.blood.splice(0, this.blood.length - 260);
     }
-    nearestSearchable() {
+    nearestSearchable(maxRange = 104) {
       let closest = null;
-      let best = 58;
+      let best = maxRange;
       for (const container of this.world.containers) {
-        const d = distance(container, this.player);
-        if (d < best) {
-          best = d;
-          closest = { ...container, ref: container, source: "container" };
+        const edgeDistance = furnitureDistance(container, this.player);
+        const visible = hasLineOfSight(this.world, this.player.x, this.player.y, container.x, container.y, blocksSight);
+        if (visible && edgeDistance < best) {
+          best = edgeDistance;
+          closest = { ...container, ref: container, source: "container", interactionDistance: edgeDistance };
         }
       }
       for (const car of this.world.cars) {
@@ -1426,19 +1505,25 @@
         const edgeDistance = Math.max(0, d - Math.max(car.w, car.h) / 2);
         if (edgeDistance < best) {
           best = edgeDistance;
-          closest = { ...car, ref: car, kind: "wrecked car", source: "car" };
+          closest = { ...car, ref: car, kind: "wrecked car", source: "car", interactionDistance: edgeDistance };
         }
       }
       return closest;
     }
     interact() {
-      if (this.mode !== "playing" || this.panelOpen) return;
+      if (this.mode !== "playing") return;
+      if (this.panelOpen === "lootPanel") {
+        this.takeAllLoot();
+        return;
+      }
+      if (this.panelOpen) return;
       const searchable = this.nearestSearchable();
       if (!searchable) {
         this.toast("Nothing nearby to search.");
         return;
       }
       const ref = searchable.ref;
+      ref.openAnim = 1;
       if (!ref.searched) {
         ref.searched = true;
         this.stats.searched += 1;
@@ -1465,7 +1550,19 @@
       this.openContainer.loot.forEach((entry, index) => {
         const item = ITEMS[entry.id];
         const row = this.makeItemRow(entry, item);
-        row.addEventListener("click", () => this.takeLoot(index));
+        row.classList.add("loot-row");
+        row.setAttribute("aria-label", `Take ${item.name}`);
+        let touchHandled = false;
+        row.addEventListener("pointerup", (event) => {
+          if (event.pointerType !== "touch") return;
+          event.preventDefault();
+          touchHandled = true;
+          this.takeLoot(index);
+        });
+        row.addEventListener("click", () => {
+          if (touchHandled) return;
+          this.takeLoot(index);
+        });
         list.append(row);
       });
     }
@@ -1808,12 +1905,18 @@
     updateInteractPrompt() {
       this.nearestInteractable = this.nearestSearchable();
       const prompt = $("#interactPrompt");
+      const touchButton = document.querySelector('[data-action="interact"]');
       if (!this.nearestInteractable || this.panelOpen || this.mode !== "playing") {
         prompt.classList.add("hidden");
+        touchButton.textContent = "SEARCH";
+        touchButton.classList.remove("ready");
         return;
       }
       prompt.classList.remove("hidden");
-      prompt.querySelector("span").textContent = `${this.nearestInteractable.ref.searched ? "OPEN" : "SEARCH"} ${String(this.nearestInteractable.kind || "container").toUpperCase()}`;
+      const action = this.nearestInteractable.ref.searched ? "OPEN" : "LOOT";
+      prompt.querySelector("span").textContent = `${action} ${String(this.nearestInteractable.kind || "container").replaceAll("_", " ").toUpperCase()}`;
+      touchButton.textContent = action;
+      touchButton.classList.add("ready");
     }
     updateLocation() {
       const tx = Math.floor(this.player.x / TILE_SIZE);
@@ -1851,20 +1954,27 @@
     }
     openPanel(id) {
       if (this.mode !== "playing") return;
+      const lootContext = id === "lootPanel" ? this.openContainer : null;
       this.closeAllPanels();
+      this.openContainer = lootContext;
       this.panelOpen = id;
+      this.gameScreen.classList.add("panel-open");
       $(`#${id}`).classList.remove("hidden");
       if (id === "inventoryPanel") this.renderInventory();
       if (id === "craftPanel") this.renderRecipes();
     }
     closePanel(id) {
       $(`#${id}`).classList.add("hidden");
-      if (this.panelOpen === id) this.panelOpen = null;
+      if (this.panelOpen === id) {
+        this.panelOpen = null;
+        this.gameScreen.classList.remove("panel-open");
+      }
     }
     closeAllPanels() {
       ["inventoryPanel", "lootPanel", "craftPanel"].forEach((id) => $(`#${id}`).classList.add("hidden"));
       this.panelOpen = null;
       this.openContainer = null;
+      this.gameScreen.classList.remove("panel-open");
     }
     togglePanel(id) {
       if (this.panelOpen === id) this.closePanel(id);
@@ -2051,23 +2161,38 @@
       const p = this.worldToScreen(tx * TILE_SIZE, ty * TILE_SIZE, shakeX, shakeY);
       const variation = hash2D(tx, ty, this.world.seed);
       if (tile === TILE.GRASS) {
-        ctx.fillStyle = variation > 0.62 ? "#263729" : variation > 0.28 ? "#223226" : "#1f2e22";
+        ctx.fillStyle = variation > 0.72 ? "#26382b" : variation > 0.22 ? "#223328" : "#203025";
         ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
-        if (variation > 0.78) {
-          ctx.strokeStyle = "rgba(123,145,108,.18)";
+        if (variation > 0.52) {
+          ctx.strokeStyle = "rgba(139,158,119,.2)";
+          ctx.lineWidth = 1;
           ctx.beginPath();
-          ctx.moveTo(p.x + 9, p.y + 23);
-          ctx.lineTo(p.x + 7, p.y + 18);
-          ctx.moveTo(p.x + 19, p.y + 12);
-          ctx.lineTo(p.x + 21, p.y + 7);
+          ctx.moveTo(p.x + 7, p.y + 25);
+          ctx.lineTo(p.x + 5, p.y + 19);
+          ctx.moveTo(p.x + 9, p.y + 25);
+          ctx.lineTo(p.x + 11, p.y + 20);
+          ctx.moveTo(p.x + 22, p.y + 13);
+          ctx.lineTo(p.x + 24, p.y + 7);
           ctx.stroke();
         }
+        if (variation < 0.11) {
+          ctx.fillStyle = "rgba(70,57,41,.2)";
+          ctx.beginPath();
+          ctx.ellipse(p.x + 17, p.y + 17, 8, 4, -0.25, 0, Math.PI * 2);
+          ctx.fill();
+        }
       } else if (tile === TILE.ROAD) {
-        ctx.fillStyle = variation > 0.53 ? "#323735" : "#2e3431";
+        ctx.fillStyle = variation > 0.58 ? "#343a38" : "#303633";
         ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
         if ((tx + ty) % 11 === 0) {
-          ctx.fillStyle = "rgba(8,10,9,.18)";
-          ctx.fillRect(p.x + 3, p.y + 5, 17, 2);
+          ctx.strokeStyle = "rgba(10,13,12,.32)";
+          ctx.lineWidth = 1.5;
+          ctx.beginPath();
+          ctx.moveTo(p.x + 2, p.y + 7);
+          ctx.lineTo(p.x + 11, p.y + 9);
+          ctx.lineTo(p.x + 16, p.y + 16);
+          ctx.lineTo(p.x + 27, p.y + 18);
+          ctx.stroke();
         }
         if (this.world.roadX.includes(tx) && ty % 3 === 0) {
           ctx.fillStyle = "rgba(197,181,124,.25)";
@@ -2078,31 +2203,96 @@
           ctx.fillRect(p.x + 4, p.y + 15, 16, 2);
         }
       } else if (tile === TILE.FLOOR) {
-        ctx.fillStyle = variation > 0.5 ? "#6b675a" : "#625f54";
-        ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
-        ctx.strokeStyle = "rgba(25,27,23,.2)";
-        ctx.strokeRect(p.x, p.y, TILE_SIZE, TILE_SIZE);
+        const building = this.buildingLookup.get(`${tx},${ty}`);
+        if (building?.type === "house") {
+          ctx.fillStyle = variation > 0.55 ? "#645a49" : "#605645";
+          ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
+          ctx.strokeStyle = "rgba(45,34,25,.3)";
+          ctx.lineWidth = 1;
+          for (let row = 8; row < TILE_SIZE; row += 8) {
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y + row);
+            ctx.lineTo(p.x + TILE_SIZE, p.y + row);
+            ctx.stroke();
+          }
+          const seam = variation > 0.5 ? 11 : 22;
+          ctx.fillStyle = "rgba(39,30,23,.22)";
+          ctx.fillRect(p.x + seam, p.y, 1, 8);
+          ctx.fillRect(p.x + (32 - seam), p.y + 8, 1, 8);
+          ctx.fillRect(p.x + seam, p.y + 16, 1, 8);
+          ctx.fillStyle = "rgba(226,206,162,.06)";
+          ctx.fillRect(p.x + 2, p.y + 2, TILE_SIZE - 4, 1);
+        } else if (building?.type === "warehouse") {
+          ctx.fillStyle = variation > 0.55 ? "#5c5c55" : "#575851";
+          ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
+          if (variation > 0.7) {
+            ctx.strokeStyle = "rgba(33,35,32,.28)";
+            ctx.beginPath();
+            ctx.moveTo(p.x + 3, p.y + 26);
+            ctx.lineTo(p.x + 13, p.y + 17);
+            ctx.lineTo(p.x + 20, p.y + 19);
+            ctx.stroke();
+          }
+        } else {
+          const clinic = building?.type === "clinic";
+          const police = building?.type === "police";
+          ctx.fillStyle = clinic ? "#777b72" : police ? "#666d70" : "#69675d";
+          ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
+          ctx.strokeStyle = "rgba(31,35,32,.22)";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(p.x + 0.5, p.y + 0.5, 15, 15);
+          ctx.strokeRect(p.x + 16.5, p.y + 0.5, 15, 15);
+          ctx.strokeRect(p.x + 0.5, p.y + 16.5, 15, 15);
+          ctx.strokeRect(p.x + 16.5, p.y + 16.5, 15, 15);
+          ctx.fillStyle = "rgba(255,255,240,.055)";
+          ctx.fillRect(p.x + 2, p.y + 2, 12, 2);
+          ctx.fillRect(p.x + 18, p.y + 18, 12, 2);
+        }
         if (this.doorTiles.has(`${tx},${ty}`)) {
-          ctx.fillStyle = "#4a3729";
-          ctx.fillRect(p.x + 4, p.y + 12, 24, 8);
-          ctx.fillStyle = "#b18b55";
-          ctx.fillRect(p.x + 22, p.y + 14, 2, 2);
+          ctx.fillStyle = "rgba(16,13,10,.48)";
+          roundedRectPath(ctx, p.x + 3, p.y + 10, 27, 13, 2);
+          ctx.fill();
+          ctx.fillStyle = "#6c4d33";
+          roundedRectPath(ctx, p.x + 4, p.y + 9, 24, 11, 1);
+          ctx.fill();
+          ctx.fillStyle = "#866244";
+          ctx.fillRect(p.x + 5, p.y + 10, 22, 2);
+          ctx.fillStyle = "#d1ae62";
+          ctx.beginPath();
+          ctx.arc(p.x + 24, p.y + 15, 1.5, 0, Math.PI * 2);
+          ctx.fill();
         }
       } else if (tile === TILE.WALL) {
         const building = this.buildingLookup.get(`${tx},${ty}`);
-        ctx.fillStyle = building?.type === "clinic" ? "#53605d" : building?.type === "police" ? "#46515a" : building?.type === "warehouse" ? "#61584c" : "#554f46";
+        ctx.fillStyle = building?.type === "clinic" ? "#586963" : building?.type === "police" ? "#4b5962" : building?.type === "warehouse" ? "#695f50" : building?.type === "store" ? "#675c4f" : "#5d554a";
         ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
-        ctx.fillStyle = "rgba(232,228,207,.08)";
-        ctx.fillRect(p.x, p.y, TILE_SIZE, 5);
-        ctx.fillStyle = "rgba(0,0,0,.22)";
+        ctx.fillStyle = "rgba(238,232,207,.13)";
+        ctx.fillRect(p.x, p.y, TILE_SIZE, 4);
+        ctx.fillStyle = "rgba(27,25,21,.17)";
+        for (let y = 9; y < 25; y += 8) ctx.fillRect(p.x, p.y + y, TILE_SIZE, 1);
+        ctx.fillStyle = "rgba(4,6,5,.35)";
         ctx.fillRect(p.x, p.y + 25, TILE_SIZE, 7);
+        ctx.fillStyle = "rgba(222,211,183,.09)";
+        ctx.fillRect(p.x + 3, p.y + 6, 2, 16);
         if (this.windowTiles.has(`${tx},${ty}`)) {
-          ctx.fillStyle = "#172429";
-          ctx.fillRect(p.x + 7, p.y + 7, 18, 13);
-          ctx.strokeStyle = "rgba(174,195,184,.28)";
-          ctx.strokeRect(p.x + 7.5, p.y + 7.5, 17, 12);
+          ctx.fillStyle = "#242a28";
+          ctx.fillRect(p.x + 5, p.y + 5, 22, 17);
+          ctx.fillStyle = "#17282d";
+          ctx.fillRect(p.x + 7, p.y + 7, 18, 12);
+          const shine = 0.14 + variation * 0.12;
+          ctx.fillStyle = `rgba(142,178,180,${shine})`;
           ctx.beginPath();
-          ctx.moveTo(p.x + 16, p.y + 8);
+          ctx.moveTo(p.x + 8, p.y + 8);
+          ctx.lineTo(p.x + 15, p.y + 8);
+          ctx.lineTo(p.x + 9, p.y + 18);
+          ctx.lineTo(p.x + 7, p.y + 18);
+          ctx.closePath();
+          ctx.fill();
+          ctx.strokeStyle = "rgba(190,205,193,.4)";
+          ctx.lineWidth = 1;
+          ctx.strokeRect(p.x + 6.5, p.y + 6.5, 19, 13);
+          ctx.beginPath();
+          ctx.moveTo(p.x + 16, p.y + 7);
           ctx.lineTo(p.x + 16, p.y + 19);
           ctx.stroke();
         }
@@ -2115,17 +2305,25 @@
         ctx.quadraticCurveTo(p.x + 14, p.y + 9, p.x + 27, p.y + 13);
         ctx.stroke();
       } else if (tile === TILE.TREE) {
-        ctx.fillStyle = "#1d2d20";
+        ctx.fillStyle = "#1e3022";
         ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
-        ctx.fillStyle = "#171b16";
-        ctx.fillRect(p.x + 13, p.y + 17, 6, 15);
-        ctx.fillStyle = variation > 0.5 ? "#29422d" : "#253b29";
+        ctx.fillStyle = "rgba(0,0,0,.3)";
         ctx.beginPath();
-        ctx.arc(p.x + 16, p.y + 14, 15, 0, Math.PI * 2);
+        ctx.ellipse(p.x + 19, p.y + 24, 12, 6, 0.2, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = "rgba(102,132,91,.15)";
+        ctx.fillStyle = "#31291e";
+        ctx.fillRect(p.x + 13, p.y + 15, 7, 17);
+        ctx.fillStyle = "#4a3b27";
+        ctx.fillRect(p.x + 14, p.y + 16, 2, 14);
+        ctx.fillStyle = variation > 0.5 ? "#2d4b32" : "#29442f";
         ctx.beginPath();
-        ctx.arc(p.x + 11, p.y + 9, 8, 0, Math.PI * 2);
+        ctx.arc(p.x + 10, p.y + 14, 10, 0, Math.PI * 2);
+        ctx.arc(p.x + 21, p.y + 12, 11, 0, Math.PI * 2);
+        ctx.arc(p.x + 16, p.y + 6, 9, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = "rgba(143,167,112,.18)";
+        ctx.beginPath();
+        ctx.arc(p.x + 12, p.y + 7, 6, 0, Math.PI * 2);
         ctx.fill();
       }
     }
@@ -2161,14 +2359,182 @@
     drawContainers(ctx, shakeX, shakeY) {
       for (const container of this.world.containers) {
         const p = this.worldToScreen(container.x, container.y, shakeX, shakeY);
-        if (p.x < -30 || p.y < -30 || p.x > this.viewWidth + 30 || p.y > this.viewHeight + 30) continue;
-        ctx.fillStyle = container.kind === "fridge" ? "#a4a699" : container.kind === "crate" ? "#604a34" : "#3d362e";
-        ctx.fillRect(p.x - 9, p.y - 9, 18, 18);
-        ctx.strokeStyle = container.searched ? "rgba(74,82,74,.6)" : "rgba(210,195,148,.34)";
-        ctx.strokeRect(p.x - 8.5, p.y - 8.5, 17, 17);
-        if (!container.searched) {
-          ctx.fillStyle = "#c6b16b";
-          ctx.fillRect(p.x - 1, p.y - 2, 2, 4);
+        if (p.x < -48 || p.y < -48 || p.x > this.viewWidth + 48 || p.y > this.viewHeight + 48) continue;
+        const base = FURNITURE_SIZES[container.kind] || [26, 20];
+        const w = base[0];
+        const h = base[1];
+        const selected = this.nearestInteractable?.ref === container && !this.panelOpen;
+        const pulse = 0.55 + Math.sin(performance.now() / 145) * 0.22;
+        const open = container.openAnim > 0 ? Math.sin((1 - container.openAnim) * Math.PI) : 0;
+        const rotation = container.side === "south" ? Math.PI : container.side === "west" ? -Math.PI / 2 : container.side === "east" ? Math.PI / 2 : 0;
+        ctx.save();
+        ctx.translate(p.x, p.y - open * 1.5);
+        ctx.rotate(rotation);
+        ctx.fillStyle = "rgba(4,7,5,.35)";
+        roundedRectPath(ctx, -w / 2 + 3, -h / 2 + 5, w, h, 3);
+        ctx.fill();
+        if (container.kind === "fridge") {
+          ctx.fillStyle = "#303733";
+          roundedRectPath(ctx, -w / 2 - 1, -h / 2 - 1, w + 2, h + 2, 3);
+          ctx.fill();
+          ctx.fillStyle = container.searched ? "#9b9c8f" : "#c1c2b4";
+          roundedRectPath(ctx, -w / 2, -h / 2, w, h, 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(255,255,255,.18)";
+          ctx.fillRect(-w / 2 + 2, -h / 2 + 2, w - 4, 3);
+          ctx.fillStyle = "#696e68";
+          ctx.fillRect(-w / 2 + 1, -2, w - 2, 2);
+          ctx.fillStyle = "#525a55";
+          ctx.fillRect(w / 2 - 5 + open * 5, 1, 2, 9);
+          ctx.fillStyle = "#b04f45";
+          ctx.fillRect(-5, -8, 3, 3);
+          ctx.fillStyle = "#d0b457";
+          ctx.fillRect(1, -6, 3, 3);
+          if (open > 0.08) {
+            ctx.fillStyle = "#222925";
+            ctx.fillRect(-w / 2 + 2, 1, w - 4, h / 2 - 3);
+            ctx.fillStyle = "#b9baac";
+            roundedRectPath(ctx, w / 2 - 2, 0, w * 0.68, h / 2 - 1, 2);
+            ctx.fill();
+          }
+        } else if (container.kind === "crate") {
+          ctx.fillStyle = "#3b2a1d";
+          ctx.fillRect(-w / 2 - 1, -h / 2 - 1, w + 2, h + 2);
+          ctx.fillStyle = container.searched ? "#5e4933" : "#7a5a39";
+          ctx.fillRect(-w / 2, -h / 2, w, h);
+          ctx.strokeStyle = "#3b2a1d";
+          ctx.lineWidth = 3;
+          ctx.strokeRect(-w / 2 + 2, -h / 2 + 2, w - 4, h - 4);
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(-w / 2 + 4, -h / 2 + 4);
+          ctx.lineTo(w / 2 - 4, h / 2 - 4);
+          ctx.moveTo(w / 2 - 4, -h / 2 + 4);
+          ctx.lineTo(-w / 2 + 4, h / 2 - 4);
+          ctx.stroke();
+          ctx.fillStyle = "rgba(226,190,119,.18)";
+          ctx.fillRect(-w / 2 + 3, -h / 2 + 3, w - 6, 2);
+        } else if (container.kind === "shelf") {
+          ctx.fillStyle = "#292c28";
+          ctx.fillRect(-w / 2 - 1, -h / 2 - 1, w + 2, h + 2);
+          ctx.fillStyle = "#55544b";
+          ctx.fillRect(-w / 2, -h / 2, w, h);
+          ctx.fillStyle = "#252925";
+          ctx.fillRect(-w / 2 + 2, -4, w - 4, 2);
+          ctx.fillRect(-w / 2 + 2, 4, w - 4, 2);
+          ["#8d5941", "#6f7e59", "#b09a58", "#657987", "#8d6a72"].forEach((color, index) => {
+            ctx.fillStyle = color;
+            ctx.fillRect(-w / 2 + 3 + index * 5, -h / 2 + 3 + index % 2 * 8, 3, 5);
+          });
+        } else if (container.kind === "locker" || container.kind === "medical_cabinet") {
+          const medical = container.kind === "medical_cabinet";
+          ctx.fillStyle = "#252c2b";
+          roundedRectPath(ctx, -w / 2 - 1, -h / 2 - 1, w + 2, h + 2, 2);
+          ctx.fill();
+          ctx.fillStyle = medical ? "#aeb7ad" : "#58645f";
+          roundedRectPath(ctx, -w / 2, -h / 2, w, h, 2);
+          ctx.fill();
+          ctx.strokeStyle = medical ? "#68746c" : "#303a36";
+          ctx.lineWidth = 1;
+          ctx.beginPath();
+          ctx.moveTo(0, -h / 2 + 1);
+          ctx.lineTo(0, h / 2 - 1);
+          ctx.stroke();
+          if (medical) {
+            ctx.fillStyle = "#9d4945";
+            ctx.fillRect(-2, -6, 4, 12);
+            ctx.fillRect(-6, -2, 12, 4);
+          } else {
+            ctx.fillStyle = "#252d2a";
+            for (let x = -7; x <= 4; x += 11) for (let y = -5; y <= -1; y += 2) ctx.fillRect(x, y, 5, 1);
+            ctx.fillStyle = "#b4a46b";
+            ctx.fillRect(-3, 3, 2, 3);
+            ctx.fillRect(2, 3, 2, 3);
+          }
+        } else if (container.kind === "supply_cart") {
+          ctx.fillStyle = "#343b38";
+          roundedRectPath(ctx, -w / 2, -h / 2, w, h - 2, 3);
+          ctx.fill();
+          ctx.fillStyle = "#aeb3a8";
+          roundedRectPath(ctx, -w / 2 + 1, -h / 2 + 1, w - 2, h - 5, 2);
+          ctx.fill();
+          ctx.fillStyle = "#6b746d";
+          ctx.fillRect(-w / 2 + 3, -2, w - 6, 1);
+          ctx.fillRect(-w / 2 + 3, 4, w - 6, 1);
+          ctx.fillStyle = "#1f2422";
+          ctx.beginPath();
+          ctx.arc(-w / 2 + 4, h / 2 - 1, 2, 0, Math.PI * 2);
+          ctx.arc(w / 2 - 4, h / 2 - 1, 2, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (container.kind === "desk" || container.kind === "counter") {
+          const desk = container.kind === "desk";
+          ctx.fillStyle = "#2d251e";
+          roundedRectPath(ctx, -w / 2 - 1, -h / 2 - 1, w + 2, h + 2, 2);
+          ctx.fill();
+          ctx.fillStyle = desk ? "#65513d" : "#695743";
+          roundedRectPath(ctx, -w / 2, -h / 2, w, h, 2);
+          ctx.fill();
+          ctx.fillStyle = "#8a7455";
+          ctx.fillRect(-w / 2 + 1, -h / 2 + 1, w - 2, 4);
+          ctx.fillStyle = "rgba(25,20,16,.48)";
+          ctx.fillRect(-w / 2 + 3, 2, w - 6, 1);
+          if (desk) {
+            ctx.fillStyle = "#d1c9ad";
+            ctx.save();
+            ctx.rotate(-0.12);
+            ctx.fillRect(-7, -7, 11, 7);
+            ctx.restore();
+            ctx.fillStyle = "#b2a25f";
+            ctx.fillRect(6, 3, 3, 2);
+          }
+        } else {
+          ctx.fillStyle = "#2c241d";
+          roundedRectPath(ctx, -w / 2 - 1, -h / 2 - 1, w + 2, h + 2, 2);
+          ctx.fill();
+          ctx.fillStyle = container.searched ? "#594638" : "#765a43";
+          roundedRectPath(ctx, -w / 2, -h / 2, w, h, 2);
+          ctx.fill();
+          ctx.fillStyle = "#907458";
+          ctx.fillRect(-w / 2 + 2, -h / 2 + 2, w - 4, 3);
+          if (container.kind === "dresser") {
+            ctx.strokeStyle = "#49382c";
+            for (let y = -4; y <= 5; y += 8) {
+              ctx.strokeRect(-w / 2 + 3, y, w - 6, 6);
+              ctx.fillStyle = "#c1a76a";
+              ctx.fillRect(-1, y + 2, 3, 2);
+            }
+          } else {
+            ctx.strokeStyle = "#49382c";
+            ctx.strokeRect(-w / 2 + 3, -h / 2 + 6, w / 2 - 4, h - 9);
+            ctx.strokeRect(1, -h / 2 + 6, w / 2 - 4, h - 9);
+            ctx.fillStyle = "#c1a76a";
+            ctx.fillRect(-3 - open * 4, 2, 2, 3);
+            ctx.fillRect(2 + open * 4, 2, 2, 3);
+            if (open > 0.08) {
+              ctx.strokeStyle = "#9b7a57";
+              ctx.strokeRect(1 + open * 9, -h / 2 + 6, w / 2 - 4, h - 9);
+            }
+          }
+        }
+        ctx.restore();
+        if (selected) {
+          const size = furnitureSize(container);
+          ctx.save();
+          ctx.strokeStyle = `rgba(229,199,112,${pulse})`;
+          ctx.lineWidth = 2;
+          ctx.setLineDash([4, 3]);
+          roundedRectPath(ctx, p.x - size.w / 2 - 5, p.y - size.h / 2 - 5, size.w + 10, size.h + 10, 6);
+          ctx.stroke();
+          ctx.setLineDash([]);
+          const label = container.searched ? "OPEN" : "LOOT";
+          ctx.font = "800 8px system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.fillStyle = "rgba(6,9,7,.9)";
+          roundedRectPath(ctx, p.x - 22, p.y - size.h / 2 - 20, 44, 14, 4);
+          ctx.fill();
+          ctx.fillStyle = "#e5c770";
+          ctx.fillText(label, p.x, p.y - size.h / 2 - 10);
+          ctx.restore();
         }
       }
     }
@@ -2203,7 +2569,7 @@
         ctx.setLineDash([]);
       }
     }
-    drawZombies(ctx, shakeX, shakeY) {
+    drawZombiesLegacy(ctx, shakeX, shakeY) {
       for (const zombie of this.zombies) {
         const p = this.worldToScreen(zombie.x, zombie.y, shakeX, shakeY);
         if (p.x < -48 || p.y < -48 || p.x > this.viewWidth + 48 || p.y > this.viewHeight + 48) continue;
@@ -2307,7 +2673,7 @@
         ctx.restore();
       }
     }
-    drawPlayer(ctx, shakeX, shakeY) {
+    drawPlayerLegacy(ctx, shakeX, shakeY) {
       const player = this.player;
       const p = this.worldToScreen(player.x, player.y, shakeX, shakeY);
       const angle = Math.atan2(player.facingY, player.facingX) + Math.PI / 2;
@@ -2428,6 +2794,305 @@
       ctx.fillRect(2, -17 + crouchDrop, 2, 2);
       ctx.fillStyle = "#8f5142";
       ctx.fillRect(-1, -13 + crouchDrop, 3, 1);
+      ctx.restore();
+    }
+    // Screen-upright, three-quarter characters: turning changes the pose and face,
+    // not the direction of gravity. This keeps a survivor facing east from looking
+    // as if they fell onto their side.
+    drawZombies(ctx, shakeX, shakeY) {
+      for (const zombie of this.zombies) {
+        const p = this.worldToScreen(zombie.x, zombie.y, shakeX, shakeY);
+        if (p.x < -55 || p.y < -55 || p.x > this.viewWidth + 55 || p.y > this.viewHeight + 55) continue;
+        const look = ZOMBIE_LOOKS[(zombie.variant ?? 0) % ZOMBIE_LOOKS.length];
+        const fx = Math.cos(zombie.angle ?? 0);
+        const fy = Math.sin(zombie.angle ?? 0);
+        const side = fx >= 0 ? 1 : -1;
+        const phase = (zombie.animTime ?? 0) + (zombie.variant ?? 0) * 0.81;
+        const move = clamp(zombie.moveBlend ?? 0, 0, 1);
+        const chasing = zombie.state === "chase";
+        const flashing = zombie.hitFlash > 0;
+        const hurt = clamp((zombie.hurtAnim ?? 0) / 0.28, 0, 1);
+        const attackRemaining = clamp((zombie.attackAnim ?? 0) / 0.42, 0, 1);
+        const attackProgress = 1 - attackRemaining;
+        const attackReach = attackRemaining > 0 ? Math.sin(attackProgress * Math.PI) : 0;
+        const fall = zombie.dead ? 1 - clamp(zombie.deathAnim ?? 0, 0, 1) : 0;
+        const fallSide = zombie.deathSide ?? 1;
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        if (zombie.dead) {
+          ctx.rotate(fallSide * fall * 1.18);
+          ctx.translate(fallSide * fall * 4, fall * 6);
+          ctx.globalAlpha = 0.9 - fall * 0.22;
+        } else {
+          ctx.translate(-fx * attackReach * 5 + fallSide * hurt * 3, -fy * attackReach * 3 + hurt * 2);
+        }
+        ctx.fillStyle = "rgba(2,5,3,.38)";
+        ctx.beginPath();
+        ctx.ellipse(2, 1, zombie.dead ? 18 : 12 + move * 2, zombie.dead ? 7 : 5, 0, 0, Math.PI * 2);
+        ctx.fill();
+        const gait = Math.sin(phase) * move * (chasing ? 4.7 : 3.1);
+        const limpLeft = (zombie.limpSide ?? -1) < 0;
+        const leftStep = gait * (limpLeft ? 0.42 : 1);
+        const rightStep = -gait * (limpLeft ? 1 : 0.42);
+        const hipY = -10;
+        const leftFoot = { x: -4 + fx * leftStep, y: -1 + fy * leftStep * 0.45 };
+        const rightFoot = { x: 4 + fx * rightStep, y: -1 + fy * rightStep * 0.45 };
+        drawSmoothLimb(ctx, -4, hipY, -5 + fx * leftStep * 0.45, -5 + fy * leftStep * 0.2, 5, flashing ? "#e7dbcf" : look.pants);
+        drawSmoothLimb(ctx, -5 + fx * leftStep * 0.45, -5 + fy * leftStep * 0.2, leftFoot.x, leftFoot.y, 4.5, flashing ? "#e7dbcf" : look.pants);
+        drawSmoothLimb(ctx, 4, hipY, 5 + fx * rightStep * 0.45, -5 + fy * rightStep * 0.2, 5, flashing ? "#e7dbcf" : look.pants);
+        drawSmoothLimb(ctx, 5 + fx * rightStep * 0.45, -5 + fy * rightStep * 0.2, rightFoot.x, rightFoot.y, 4.5, flashing ? "#e7dbcf" : look.pants);
+        ctx.fillStyle = "#171d1b";
+        ctx.beginPath();
+        ctx.ellipse(leftFoot.x + fx * 1.5, leftFoot.y, 4.5, 2.6, 0, 0, Math.PI * 2);
+        ctx.ellipse(rightFoot.x + fx * 1.5, rightFoot.y, 4.5, 2.6, 0, 0, Math.PI * 2);
+        ctx.fill();
+        const bob = Math.abs(Math.cos(phase)) * move * 1.2;
+        const hunch = chasing ? 1.5 : 0;
+        const bodyX = Math.sin(phase * 0.5) * move * 1.2 + fx * hunch;
+        const bodyY = -18 + bob + hunch;
+        const shirt = flashing ? "#f1e5d9" : look.shirt;
+        const shirtDark = flashing ? "#d9cec4" : look.shirtDark;
+        const shoulderY = bodyY - 1;
+        let leftHand;
+        let rightHand;
+        if (chasing || attackRemaining > 0) {
+          const reach = 9 + attackReach * 10;
+          leftHand = { x: bodyX - 5 + fx * reach, y: shoulderY + 3 + fy * reach * 0.55 };
+          rightHand = { x: bodyX + 5 + fx * (reach + 2), y: shoulderY + 4 + fy * (reach + 2) * 0.55 };
+        } else {
+          leftHand = { x: bodyX - 10 - side, y: bodyY + 9 + Math.cos(phase) * move * 2.5 };
+          rightHand = { x: bodyX + 10, y: bodyY + 11 - Math.cos(phase) * move * 2 };
+        }
+        drawSmoothLimb(ctx, bodyX - 7, shoulderY, leftHand.x, leftHand.y, 4.5, shirtDark);
+        drawSmoothLimb(ctx, bodyX + 7, shoulderY, rightHand.x, rightHand.y, 4.5, shirtDark);
+        roundedRectPath(ctx, bodyX - 9, bodyY - 7, 18, 17, 5);
+        ctx.fillStyle = "#242a26";
+        ctx.fill();
+        roundedRectPath(ctx, bodyX - 7.5, bodyY - 6, 15, 15, 4);
+        ctx.fillStyle = shirt;
+        ctx.fill();
+        ctx.fillStyle = shirtDark;
+        ctx.fillRect(bodyX - 7, bodyY + 6, 14, 3);
+        if ((zombie.variant ?? 0) === 0) {
+          ctx.fillStyle = "rgba(215,178,77,.55)";
+          ctx.fillRect(bodyX - 7, bodyY + 1, 14, 2);
+        } else if ((zombie.variant ?? 0) === 1) {
+          ctx.fillStyle = "#78828a";
+          ctx.fillRect(bodyX - 1, bodyY - 5, 2, 12);
+          ctx.fillStyle = look.accent;
+          ctx.fillRect(bodyX + 3, bodyY - 3, 3, 3);
+        } else if ((zombie.variant ?? 0) === 2) {
+          ctx.fillStyle = look.accent;
+          ctx.beginPath();
+          ctx.ellipse(bodyX - 4, bodyY + 3, 3, 2, 0.4, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = "#25282b";
+          ctx.beginPath();
+          ctx.moveTo(bodyX, bodyY - 5);
+          ctx.lineTo(bodyX + 2, bodyY + 5);
+          ctx.lineTo(bodyX - 1, bodyY + 7);
+          ctx.closePath();
+          ctx.fill();
+        }
+        const handColor = flashing ? "#fff0e2" : look.skinDark;
+        ctx.fillStyle = handColor;
+        ctx.beginPath();
+        ctx.arc(leftHand.x, leftHand.y, 2.8, 0, Math.PI * 2);
+        ctx.arc(rightHand.x, rightHand.y, 2.8, 0, Math.PI * 2);
+        ctx.fill();
+        const headX = bodyX + fx * 2.3;
+        const headY = bodyY - 12 + fy * 1.2;
+        ctx.fillStyle = "#252922";
+        ctx.beginPath();
+        ctx.ellipse(headX, headY, 7.2, 8, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = flashing ? "#fff0e2" : look.skin;
+        ctx.beginPath();
+        ctx.ellipse(headX, headY - 0.5, 6.1, 6.9, 0, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.fillStyle = look.hair;
+        ctx.beginPath();
+        ctx.ellipse(headX - side * 1.2, headY - 4.5, 6, 3.4, side * 0.12, Math.PI, Math.PI * 2);
+        ctx.fill();
+        ctx.fillRect(headX - (side > 0 ? 6 : -3), headY - 4, 3, 7);
+        if (fy > -0.66) {
+          const eyeY = headY - 1 + Math.max(0, fy) * 1.5;
+          ctx.fillStyle = "#24251f";
+          if (Math.abs(fx) > 0.55) {
+            ctx.fillRect(headX + side * 2 - 1, eyeY, 2, 2);
+          } else {
+            ctx.fillRect(headX - 3, eyeY, 2, 2);
+            ctx.fillRect(headX + 2, eyeY, 2, 2);
+          }
+          ctx.fillStyle = look.accent;
+          ctx.fillRect(headX - 2 + side, eyeY + 4, 4, 1.5);
+        }
+        if (chasing && !zombie.dead) {
+          const hp = clamp(zombie.health / zombie.maxHealth, 0, 1);
+          ctx.fillStyle = "rgba(15,9,8,.72)";
+          ctx.fillRect(headX - 10, headY - 13, 20, 3);
+          ctx.fillStyle = "#a64d47";
+          ctx.fillRect(headX - 9, headY - 12, 18 * hp, 1.5);
+        }
+        ctx.restore();
+      }
+    }
+    drawPlayer(ctx, shakeX, shakeY) {
+      const player = this.player;
+      const p = this.worldToScreen(player.x, player.y, shakeX, shakeY);
+      const fx = player.facingX ?? 1;
+      const fy = player.facingY ?? 0;
+      const side = fx >= 0 ? 1 : -1;
+      const phase = player.animTime ?? 0;
+      const move = clamp(player.moveBlend ?? 0, 0, 1);
+      const sprinting = Boolean(player.sprintingNow);
+      const crouching = Boolean(player.crouching);
+      const attackDuration = player.attackDuration || 0.28;
+      const attackRemaining = clamp((player.attackAnim ?? 0) / attackDuration, 0, 1);
+      const attackProgress = 1 - attackRemaining;
+      const attackCurve = attackRemaining > 0 ? Math.sin(attackProgress * Math.PI) : 0;
+      const hurt = clamp((player.hurtAnim ?? 0) / 0.3, 0, 1);
+      const hurtFlash = hurt > 0 && Math.floor(hurt * 22) % 2 === 0;
+      const weapon = ITEMS[player.equipped] ?? FISTS;
+      const ranged = weapon.mode === "ranged";
+      const compress = crouching ? 5 : 0;
+      const step = Math.sin(phase) * move * (sprinting ? 5.8 : crouching ? 2.7 : 4.1);
+      const bob = Math.abs(Math.cos(phase)) * move * (sprinting ? 1.8 : 1.1);
+      ctx.save();
+      ctx.translate(p.x + Math.sin(hurt * Math.PI) * -side * 4, p.y + hurt * 2);
+      ctx.fillStyle = "rgba(2,5,3,.4)";
+      ctx.beginPath();
+      ctx.ellipse(2, 1, sprinting ? 15 : 12, crouching ? 6 : 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      const hipY = -10 + compress;
+      const leftFoot = { x: -4 + fx * step, y: -1 + fy * step * 0.45 };
+      const rightFoot = { x: 4 - fx * step, y: -1 - fy * step * 0.45 };
+      const pantsLeft = hurtFlash ? "#eee2d7" : "#2b3733";
+      const pantsRight = hurtFlash ? "#eee2d7" : "#34413c";
+      drawSmoothLimb(ctx, -4, hipY, -5 + fx * step * 0.45, -5 + compress * 0.4 + fy * step * 0.2, 5, pantsLeft);
+      drawSmoothLimb(ctx, -5 + fx * step * 0.45, -5 + compress * 0.4 + fy * step * 0.2, leftFoot.x, leftFoot.y, 4.6, pantsLeft);
+      drawSmoothLimb(ctx, 4, hipY, 5 - fx * step * 0.45, -5 + compress * 0.4 - fy * step * 0.2, 5, pantsRight);
+      drawSmoothLimb(ctx, 5 - fx * step * 0.45, -5 + compress * 0.4 - fy * step * 0.2, rightFoot.x, rightFoot.y, 4.6, pantsRight);
+      ctx.fillStyle = "#141b18";
+      ctx.beginPath();
+      ctx.ellipse(leftFoot.x + fx * 1.4, leftFoot.y, 4.6, 2.6, 0, 0, Math.PI * 2);
+      ctx.ellipse(rightFoot.x + fx * 1.4, rightFoot.y, 4.6, 2.6, 0, 0, Math.PI * 2);
+      ctx.fill();
+      const lean = sprinting ? fx * 2.3 : 0;
+      const bodyX = lean;
+      const bodyY = -19 + compress + bob;
+      const skin = hurtFlash ? "#fff1e4" : "#bf9677";
+      const jacket = hurtFlash ? "#f7e9dc" : crouching ? "#546b58" : "#607b64";
+      const jacketDark = hurtFlash ? "#d9ccc1" : "#3e5445";
+      const hasBackpack = player.inventory?.some((entry) => entry.id === "backpack" && entry.qty > 0);
+      if (hasBackpack) {
+        ctx.fillStyle = "#252d25";
+        roundedRectPath(ctx, bodyX - 9 - fx, bodyY - 4, 18, 17, 5);
+        ctx.fill();
+        ctx.fillStyle = "#4f5a42";
+        roundedRectPath(ctx, bodyX - 7 - fx, bodyY - 2, 14, 13, 4);
+        ctx.fill();
+        ctx.fillStyle = "#a68a55";
+        ctx.fillRect(bodyX - 1 - fx, bodyY + 6, 3, 3);
+      }
+      const shoulderY = bodyY - 1;
+      let leftHand = { x: bodyX - 10 - fx * Math.cos(phase) * move * 2, y: bodyY + 7 - fy * Math.cos(phase) * move * 2 };
+      let rightHand = { x: bodyX + 10 + fx * Math.cos(phase) * move * 2, y: bodyY + 7 + fy * Math.cos(phase) * move * 2 };
+      let weaponDir = { x: fx, y: fy };
+      if (ranged) {
+        const recoil = attackCurve * (weapon.pellets ? 4 : 2);
+        const reach = 10 - recoil;
+        leftHand = { x: bodyX - 2 + fx * reach, y: bodyY - 1 + fy * reach * 0.62 };
+        rightHand = { x: bodyX + 2 + fx * (reach + 1), y: bodyY + 1 + fy * (reach + 1) * 0.62 };
+      } else if (attackRemaining > 0) {
+        const baseAngle = Math.atan2(fy, fx);
+        const sweep = baseAngle - 1.24 + attackProgress * 2.48;
+        weaponDir = { x: Math.cos(sweep), y: Math.sin(sweep) };
+        rightHand = { x: bodyX + weaponDir.x * 13, y: bodyY + weaponDir.y * 9 };
+        if (player.equipped === "bat" || player.equipped === "axe") leftHand = { x: bodyX + weaponDir.x * 7 - side * 2, y: bodyY + weaponDir.y * 5 + 1 };
+      } else if (weapon !== FISTS) {
+        rightHand = { x: bodyX + side * 7 + fx * 6, y: bodyY + 3 + fy * 5 };
+      }
+      drawSmoothLimb(ctx, bodyX - 7, shoulderY, leftHand.x, leftHand.y, 4.8, jacketDark);
+      roundedRectPath(ctx, bodyX - 9, bodyY - 8, 18, 18, 5);
+      ctx.fillStyle = "#263029";
+      ctx.fill();
+      roundedRectPath(ctx, bodyX - 7.5, bodyY - 7, 15, 16, 4);
+      ctx.fillStyle = jacket;
+      ctx.fill();
+      ctx.fillStyle = "rgba(230,236,216,.2)";
+      ctx.fillRect(bodyX - 5, bodyY - 5, 10, 2);
+      ctx.fillStyle = jacketDark;
+      ctx.fillRect(bodyX - 1, bodyY - 6, 2, 14);
+      ctx.fillStyle = "#b69d65";
+      ctx.beginPath();
+      ctx.arc(bodyX + 4, bodyY - 2, 1.5, 0, Math.PI * 2);
+      ctx.fill();
+      drawSmoothLimb(ctx, bodyX + 7, shoulderY, rightHand.x, rightHand.y, 4.8, jacketDark);
+      ctx.fillStyle = skin;
+      ctx.beginPath();
+      ctx.arc(leftHand.x, leftHand.y, 2.8, 0, Math.PI * 2);
+      ctx.arc(rightHand.x, rightHand.y, 2.8, 0, Math.PI * 2);
+      ctx.fill();
+      if (ranged) {
+        const startX = (leftHand.x + rightHand.x) / 2;
+        const startY = (leftHand.y + rightHand.y) / 2;
+        const length = player.equipped === "shotgun" ? 22 : 13;
+        const endX = startX + fx * length;
+        const endY = startY + fy * length * 0.72;
+        drawSmoothLimb(ctx, startX, startY, endX, endY, player.equipped === "shotgun" ? 4 : 3, "#353d3a", "#161b19");
+        if (player.equipped === "shotgun") drawSmoothLimb(ctx, startX - fx * 4, startY - fy * 3, startX + fx * 5, startY + fy * 3, 5, "#6e4e31", "#2b2119");
+      } else if (weapon !== FISTS) {
+        const length = player.equipped === "knife" ? 11 : player.equipped === "axe" ? 18 : 17;
+        const startX = rightHand.x;
+        const startY = rightHand.y;
+        const endX = startX + weaponDir.x * length;
+        const endY = startY + weaponDir.y * length * 0.78;
+        if (player.equipped === "knife") {
+          drawSmoothLimb(ctx, startX, startY, endX, endY, 2.2, "#d7dfda", "#29302d");
+        } else {
+          drawSmoothLimb(ctx, startX, startY, endX, endY, player.equipped === "bat" ? 4 : 3, player.equipped === "bat" ? "#80593a" : "#6f4d31", "#2d221a");
+          if (player.equipped === "axe") {
+            const angle = Math.atan2(endY - startY, endX - startX);
+            ctx.save();
+            ctx.translate(endX, endY);
+            ctx.rotate(angle);
+            ctx.fillStyle = "#aeb6b1";
+            roundedRectPath(ctx, -2, -7, 7, 14, 2);
+            ctx.fill();
+            ctx.fillStyle = "#d9dfdb";
+            ctx.fillRect(1, -6, 4, 4);
+            ctx.restore();
+          }
+        }
+      }
+      const headX = bodyX + fx * 2.1;
+      const headY = bodyY - 13 + fy * 1.1;
+      ctx.fillStyle = "#2b2923";
+      ctx.beginPath();
+      ctx.ellipse(headX, headY, 7.4, 8.2, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = skin;
+      ctx.beginPath();
+      ctx.ellipse(headX, headY - 0.3, 6.2, 7, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.fillStyle = "#29231f";
+      ctx.beginPath();
+      ctx.ellipse(headX - side, headY - 4.8, 6.2, 3.6, side * 0.12, Math.PI, Math.PI * 2);
+      ctx.fill();
+      ctx.fillRect(headX - (side > 0 ? 6 : -3), headY - 4, 3, 7);
+      if (fy > -0.67) {
+        const eyeY = headY - 0.8 + Math.max(0, fy) * 1.4;
+        ctx.fillStyle = "#27251f";
+        if (Math.abs(fx) > 0.55) ctx.fillRect(headX + side * 2 - 1, eyeY, 2, 2);
+        else {
+          ctx.fillRect(headX - 3, eyeY, 2, 2);
+          ctx.fillRect(headX + 2, eyeY, 2, 2);
+        }
+        ctx.fillStyle = "#8f5142";
+        ctx.fillRect(headX - 1 + side, eyeY + 4, 3, 1.2);
+      }
       ctx.restore();
     }
     drawEffects(ctx, shakeX, shakeY, behind) {
