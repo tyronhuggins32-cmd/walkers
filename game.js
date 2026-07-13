@@ -1,3 +1,4 @@
+/* Walkers Build 2.0 — deterministic chunk-streamed survival */
 (() => {
   // src/data.js
   var ITEMS = Object.freeze({
@@ -14,9 +15,11 @@
     nails: { name: "Box of nails", icon: "NAIL", kind: "material", weight: 0.2, maxStack: 8, description: "A handful of salvaged nails." },
     scrap: { name: "Metal scrap", icon: "SCRP", kind: "material", weight: 0.8, maxStack: 6, description: "Bent metal with a few uses left." },
     knife: { name: "Kitchen knife", icon: "KNF", kind: "weapon", mode: "melee", damage: 14, range: 46, cooldown: 0.4, noise: 22, staminaCost: 8, weight: 0.6, maxStack: 1, description: "Fast and quiet, but dangerously close." },
+    hammer: { name: "Claw hammer", icon: "HAM", kind: "weapon", mode: "melee", damage: 20, range: 51, cooldown: 0.5, noise: 39, staminaCost: 10, weight: 0.9, maxStack: 1, description: "A compact tool with a vicious backswing." },
     bat: { name: "Baseball bat", icon: "BAT", kind: "weapon", mode: "melee", damage: 22, range: 58, cooldown: 0.62, noise: 42, staminaCost: 13, weight: 1.4, maxStack: 1, description: "Reliable blunt force." },
     axe: { name: "Fire axe", icon: "AXE", kind: "weapon", mode: "melee", damage: 36, range: 62, cooldown: 0.82, noise: 48, staminaCost: 17, weight: 2.2, maxStack: 1, description: "Heavy, exhausting, devastating." },
     machete: { name: "Brush machete", icon: "MCH", kind: "weapon", mode: "melee", damage: 28, range: 66, cooldown: 0.56, noise: 34, staminaCost: 11, weight: 1, maxStack: 1, description: "A long, fast blade made for clearing more than brush." },
+    katana: { name: "Display katana", icon: "KTN", kind: "weapon", mode: "melee", damage: 38, range: 74, cooldown: 0.7, noise: 31, staminaCost: 15, weight: 1.3, maxStack: 1, description: "Rare, balanced, and sharper than it has any right to be." },
     crowbar: { name: "Steel crowbar", icon: "BAR", kind: "weapon", mode: "melee", damage: 24, range: 63, cooldown: 0.68, noise: 50, staminaCost: 14, weight: 1.7, maxStack: 1, description: "Heavy steel with a useful hooked end." },
     spear: { name: "Salvaged spear", icon: "SPR", kind: "weapon", mode: "melee", damage: 30, range: 88, cooldown: 0.74, noise: 34, staminaCost: 14, weight: 2, maxStack: 1, description: "Keeps teeth farther away than most tools." },
     sledgehammer: { name: "Sledgehammer", icon: "SLG", kind: "weapon", mode: "melee", damage: 44, range: 68, cooldown: 1.05, noise: 62, staminaCost: 22, weight: 4.5, maxStack: 1, description: "Awful to carry. Worse to stand in front of." },
@@ -24,7 +27,9 @@
     revolver: { name: ".357 revolver", icon: "357", kind: "weapon", mode: "ranged", damage: 58, range: 650, cooldown: 0.48, noise: 650, ammo: "ammo9", weight: 1.3, maxStack: 1, description: "Slow, loud, and brutally dependable." },
     smg: { name: "9 mm submachine gun", icon: "SMG", kind: "weapon", mode: "ranged", damage: 21, range: 460, cooldown: 0.12, noise: 520, spread: 0.065, ammo: "ammo9", automatic: true, weight: 2.6, maxStack: 1, description: "Automatic fire trades ammunition for breathing room." },
     shotgun: { name: "Pump shotgun", icon: "12G", kind: "weapon", mode: "ranged", damage: 32, pellets: 6, spread: 0.18, range: 390, cooldown: 0.95, noise: 760, ammo: "shell", weight: 3.2, maxStack: 1, description: "A room clearer and horde caller." },
+    double_barrel: { name: "Double-barrel shotgun", icon: "DBL", kind: "weapon", mode: "ranged", damage: 38, pellets: 7, spread: 0.22, range: 360, cooldown: 1.12, noise: 820, ammo: "shell", weight: 3.5, maxStack: 1, description: "Two old barrels built for one brutal answer." },
     rifle: { name: "Hunting rifle", icon: "RFL", kind: "weapon", mode: "ranged", damage: 72, range: 830, cooldown: 0.82, noise: 860, spread: 0.018, ammo: "rifle_round", weight: 3.6, maxStack: 1, description: "Long reach and stopping power at a terrible volume." },
+    carbine: { name: "Patrol carbine", icon: "CAR", kind: "weapon", mode: "ranged", damage: 46, range: 690, cooldown: 0.24, noise: 720, spread: 0.028, ammo: "rifle_round", weight: 3.1, maxStack: 1, description: "Fast follow-up shots in a compact sheriff-department rifle." },
     ammo9: { name: "9 mm rounds", icon: "9MM", kind: "ammo", weight: 0.03, maxStack: 30, description: "Pistol ammunition." },
     shell: { name: "12-gauge shells", icon: "12G", kind: "ammo", weight: 0.06, maxStack: 16, description: "Shotgun ammunition." },
     rifle_round: { name: ".308 rifle rounds", icon: "308", kind: "ammo", weight: 0.05, maxStack: 20, description: "Hunting-rifle ammunition." },
@@ -33,9 +38,10 @@
   });
   var BUILDING_TYPES = Object.freeze({
     house: { name: "Residence", color: "#5a554b", loot: "home" },
-    store: { name: "Market", color: "#585247", loot: "store" },
-    clinic: { name: "Urgent Care", color: "#51605d", loot: "medical" },
-    police: { name: "Sheriff Annex", color: "#4a525b", loot: "police" },
+    grocery: { name: "Grocery Store", color: "#58604d", loot: "store" },
+    hospital: { name: "St. Mercy Hospital", color: "#516966", loot: "medical" },
+    sheriff: { name: "Sheriff Department", color: "#465966", loot: "police" },
+    prison: { name: "Hollow County Prison", color: "#555e60", loot: "prison" },
     warehouse: { name: "Warehouse", color: "#615a50", loot: "tools" }
   });
   var LOOT_TABLES = Object.freeze({
@@ -47,8 +53,10 @@
       ["bandage", 2],
       ["rag", 5],
       ["knife", 2],
+      ["hammer", 1.2],
       ["bat", 1],
       ["machete", 0.45],
+      ["katana", 0.08],
       ["crowbar", 0.35],
       ["flashlight", 1],
       ["backpack", 0.5]
@@ -76,7 +84,9 @@
       ["revolver", 1.1],
       ["smg", 0.45],
       ["shotgun", 0.8],
+      ["double_barrel", 0.25],
       ["rifle", 0.35],
+      ["carbine", 0.55],
       ["ammo9", 8],
       ["shell", 4],
       ["rifle_round", 2.5],
@@ -84,17 +94,38 @@
       ["bat", 2],
       ["flashlight", 3]
     ],
+    prison: [
+      ["bat", 2.5],
+      ["hammer", 1.2],
+      ["crowbar", 2],
+      ["machete", 1.1],
+      ["sledgehammer", 0.45],
+      ["pistol", 0.65],
+      ["shotgun", 0.3],
+      ["ammo9", 4],
+      ["shell", 1.4],
+      ["bandage", 2],
+      ["painkillers", 1.2],
+      ["water", 2],
+      ["jerky", 2],
+      ["rag", 4],
+      ["scrap", 3],
+      ["flashlight", 1.5]
+    ],
     tools: [
       ["plank", 7],
       ["nails", 7],
       ["scrap", 5],
       ["axe", 1.4],
+      ["hammer", 2],
       ["bat", 2],
       ["crowbar", 1.5],
       ["machete", 0.8],
+      ["katana", 0.06],
       ["spear", 0.65],
       ["sledgehammer", 0.5],
       ["rifle", 0.18],
+      ["double_barrel", 0.12],
       ["rifle_round", 0.7],
       ["rag", 2]
     ],
@@ -314,7 +345,9 @@
     WATER: 4,
     TREE: 5
   });
-  var DEFAULT_WORLD_SIZE = 456;
+  var CHUNK_SIZE = 48;
+  var DEFAULT_WORLD_SIZE = CHUNK_SIZE * 96;
+  var ROAD_SPACING = 24;
   var TILE_SIZE = 32;
   function tileIndex(world, x, y) {
     return y * world.width + x;
@@ -324,10 +357,30 @@
   }
   function getTile(world, x, y) {
     if (!inBounds(world, x, y)) return TILE.WALL;
+    if (world.chunked) {
+      const cx = Math.floor(x / world.chunkSize);
+      const cy = Math.floor(y / world.chunkSize);
+      const chunk = world.chunks.get(`${cx},${cy}`);
+      if (!chunk) return proceduralBaseTile(world, x, y);
+      const lx = x - cx * world.chunkSize;
+      const ly = y - cy * world.chunkSize;
+      return chunk.tiles[ly * world.chunkSize + lx];
+    }
     return world.tiles[tileIndex(world, x, y)];
   }
   function setTile(world, x, y, tile) {
-    if (inBounds(world, x, y)) world.tiles[tileIndex(world, x, y)] = tile;
+    if (!inBounds(world, x, y)) return;
+    if (world.chunked) {
+      const cx = Math.floor(x / world.chunkSize);
+      const cy = Math.floor(y / world.chunkSize);
+      const chunk = world.chunks.get(`${cx},${cy}`);
+      if (!chunk) return;
+      const lx = x - cx * world.chunkSize;
+      const ly = y - cy * world.chunkSize;
+      chunk.tiles[ly * world.chunkSize + lx] = tile;
+      return;
+    }
+    world.tiles[tileIndex(world, x, y)] = tile;
   }
   function isSolidTile(tile) {
     return tile === TILE.WALL || tile === TILE.WATER || tile === TILE.TREE;
@@ -337,6 +390,29 @@
   }
   function blocksSight(tile) {
     return tile === TILE.WALL || tile === TILE.TREE;
+  }
+  function positiveModulo(value, divisor) {
+    return (value % divisor + divisor) % divisor;
+  }
+  function gridDistance(value, spacing = ROAD_SPACING) {
+    const offset = positiveModulo(value, spacing);
+    return Math.min(offset, spacing - offset);
+  }
+  function isRoadCenter(world, axis, value) {
+    if (world.chunked) return positiveModulo(value, ROAD_SPACING) === 0;
+    return (axis === "x" ? world.roadX : world.roadY).includes(value);
+  }
+  function proceduralBaseTile(world, x, y) {
+    if (gridDistance(x) <= 1 || gridDistance(y) <= 1) return TILE.ROAD;
+    const basinX = Math.floor(x / 11);
+    const basinY = Math.floor(y / 11);
+    const basin = hash2D(basinX, basinY, `${world.seed}:WATER`);
+    const ripple = hash2D(x, y, `${world.seed}:SHORE`);
+    if (basin < 0.018 && ripple < 0.76) return TILE.WATER;
+    const grove = hash2D(Math.floor(x / 7), Math.floor(y / 7), `${world.seed}:GROVE`);
+    const tree = hash2D(x, y, `${world.seed}:TREE`);
+    if (grove > 0.76 && tree > 0.72 || tree > 0.972) return TILE.TREE;
+    return TILE.GRASS;
   }
   function roadPositions(rng, size) {
     const roads = [rng.int(8, 11)];
@@ -372,12 +448,14 @@
       }
     }
   }
-  function chooseBuildingType(rng, distanceFromCenter) {
+  function chooseBuildingType(rng, distanceFromCenter, rect) {
     const roll = rng.float();
-    if (roll < 0.08 && distanceFromCenter < 0.55) return "clinic";
-    if (roll < 0.15 && distanceFromCenter < 0.6) return "police";
-    if (roll < 0.32) return "store";
-    if (roll < 0.48 && distanceFromCenter > 0.35) return "warehouse";
+    const major = rect.w >= 10 && rect.h >= 9;
+    if (major && roll < 0.07) return "prison";
+    if (major && roll < 0.18) return "hospital";
+    if (rect.w >= 9 && rect.h >= 8 && roll < 0.29) return "sheriff";
+    if (rect.w >= 8 && rect.h >= 7 && roll < 0.48) return "grocery";
+    if (roll < 0.67) return "warehouse";
     return "house";
   }
   function weightedLoot(rng, tableName) {
@@ -402,66 +480,215 @@
     }
     return entries;
   }
+  var BUILDING_VARIANTS = Object.freeze({
+    house: ["bungalow", "l_house", "ranch"],
+    grocery: ["corner_market", "loading_notch", "supermarket"],
+    hospital: ["cross_wing", "emergency_wing"],
+    sheriff: ["station_wings", "brick_station"],
+    prison: ["courtyard_block", "fortified_block"],
+    warehouse: ["loading_bay", "workshop"]
+  });
+  function footprintIncludes(type, variant, lx, ly, w, h) {
+    if (type === "house" && variant === "l_house") {
+      return !(lx >= Math.max(3, Math.floor(w * 0.62)) && ly >= Math.max(3, Math.floor(h * 0.58)));
+    }
+    if (type === "grocery" && variant === "loading_notch") {
+      return !(lx >= w - 2 && ly >= h - 2);
+    }
+    if (type === "hospital" && variant === "cross_wing") {
+      const verticalWidth = Math.max(4, Math.floor(w * 0.48));
+      const verticalStart = Math.floor((w - verticalWidth) / 2);
+      const horizontalHeight = Math.max(4, Math.floor(h * 0.48));
+      const horizontalStart = Math.floor((h - horizontalHeight) / 2);
+      return lx >= verticalStart && lx < verticalStart + verticalWidth || ly >= horizontalStart && ly < horizontalStart + horizontalHeight;
+    }
+    if (type === "sheriff" && variant === "station_wings") {
+      return !(ly < 2 && (lx < 2 || lx >= w - 2));
+    }
+    if (type === "prison" && variant === "courtyard_block" && w >= 10 && h >= 9) {
+      const courtyard = lx >= 3 && lx <= w - 4 && ly >= 3 && ly <= h - 4;
+      return !courtyard;
+    }
+    if (type === "warehouse" && variant === "workshop") {
+      return !(lx >= w - 2 && ly < 2);
+    }
+    return true;
+  }
+  function closestRoadSide(world, rect) {
+    const cx = rect.x + rect.w / 2;
+    const cy = rect.y + rect.h / 2;
+    if (world.chunked) {
+      const roadX2 = Math.round(cx / ROAD_SPACING) * ROAD_SPACING;
+      const roadY2 = Math.round(cy / ROAD_SPACING) * ROAD_SPACING;
+      if (Math.abs(roadX2 - cx) < Math.abs(roadY2 - cy)) return roadX2 < cx ? "west" : "east";
+      return roadY2 < cy ? "north" : "south";
+    }
+    const roadX = world.roadX.reduce((best, value) => Math.abs(value - cx) < Math.abs(best - cx) ? value : best, world.roadX[0]);
+    const roadY = world.roadY.reduce((best, value) => Math.abs(value - cy) < Math.abs(best - cy) ? value : best, world.roadY[0]);
+    if (Math.abs(roadX - cx) < Math.abs(roadY - cy)) return roadX < cx ? "west" : "east";
+    return roadY < cy ? "north" : "south";
+  }
+  function doorOrientation(side) {
+    return side === "north" || side === "south" ? "horizontal" : "vertical";
+  }
+  function addDoor(world, building, x, y, side, exterior = false, style = "wood") {
+    if (!building.cellSet.has(`${x},${y}`)) return false;
+    setTile(world, x, y, TILE.FLOOR);
+    if (!building.doors.some((door) => door.x === x && door.y === y)) {
+      building.doors.push({ x, y, side, orientation: doorOrientation(side), exterior, style });
+    }
+    return true;
+  }
+  function addPartition(world, building, axis, coordinate, from, to, openings = []) {
+    for (let value = from; value <= to; value += 1) {
+      const x = axis === "vertical" ? coordinate : value;
+      const y = axis === "vertical" ? value : coordinate;
+      if (!building.cellSet.has(`${x},${y}`) || getTile(world, x, y) !== TILE.FLOOR) continue;
+      setTile(world, x, y, TILE.WALL);
+    }
+    for (const opening of openings) {
+      const x = axis === "vertical" ? coordinate : opening;
+      const y = axis === "vertical" ? opening : coordinate;
+      const side = axis === "vertical" ? "west" : "north";
+      if (getTile(world, x, y) === TILE.WALL) addDoor(world, building, x, y, side, false, "interior");
+    }
+  }
+  function furnishKinds(type) {
+    if (type === "grocery") return ["checkout", "shelf", "shelf", "freezer", "shelf", "counter"];
+    if (type === "hospital") return ["reception", "hospital_bed", "medical_cabinet", "gurney", "supply_cart", "hospital_bed"];
+    if (type === "sheriff") return ["desk", "locker", "evidence_cabinet", "desk", "gun_locker"];
+    if (type === "prison") return ["cell_locker", "canteen_table", "cell_locker", "medical_cabinet", "guard_desk", "crate"];
+    if (type === "warehouse") return ["crate", "workbench", "crate", "tool_cabinet"];
+    return ["fridge", "dresser", "cupboard", "table"];
+  }
   function addBuilding(world, rng, rect, type) {
-    const id = `b${world.buildings.length}`;
+    const id = world.activeChunkKey ? `${world.activeChunkKey}-b${world.activeChunkBuildingIndex++}` : `b${world.buildings.length}`;
+    const variants = BUILDING_VARIANTS[type] || ["standard"];
+    const variant = rng.pick(variants);
     const building = {
       id,
+      chunkKey: world.activeChunkKey || null,
       type,
+      variant,
       name: BUILDING_TYPES[type].name,
       ...rect,
       doors: [],
-      windows: []
+      windows: [],
+      barTiles: [],
+      cells: [],
+      cellSet: /* @__PURE__ */ new Set()
     };
-    for (let y = rect.y; y < rect.y + rect.h; y += 1) {
-      for (let x = rect.x; x < rect.x + rect.w; x += 1) {
-        const perimeter = x === rect.x || y === rect.y || x === rect.x + rect.w - 1 || y === rect.y + rect.h - 1;
-        setTile(world, x, y, perimeter ? TILE.WALL : TILE.FLOOR);
+    for (let ly = 0; ly < rect.h; ly += 1) {
+      for (let lx = 0; lx < rect.w; lx += 1) {
+        if (!footprintIncludes(type, variant, lx, ly, rect.w, rect.h)) continue;
+        const x = rect.x + lx;
+        const y = rect.y + ly;
+        building.cells.push({ x, y });
+        building.cellSet.add(`${x},${y}`);
+        setTile(world, x, y, TILE.FLOOR);
       }
     }
-    const side = rng.pick(["north", "south", "east", "west"]);
-    let door;
-    if (side === "north") door = { x: rect.x + Math.floor(rect.w / 2), y: rect.y };
-    if (side === "south") door = { x: rect.x + Math.floor(rect.w / 2), y: rect.y + rect.h - 1 };
-    if (side === "west") door = { x: rect.x, y: rect.y + Math.floor(rect.h / 2) };
-    if (side === "east") door = { x: rect.x + rect.w - 1, y: rect.y + Math.floor(rect.h / 2) };
-    setTile(world, door.x, door.y, TILE.FLOOR);
-    building.doors.push(door);
-    const windowCount = Math.max(2, Math.floor((rect.w + rect.h) / 5));
-    for (let i = 0; i < windowCount; i += 1) {
-      const windowSide = i % 2 ? "horizontal" : "vertical";
-      let window2;
-      if (windowSide === "horizontal") {
-        window2 = { x: rng.int(rect.x + 1, rect.x + rect.w - 2), y: rng.chance(0.5) ? rect.y : rect.y + rect.h - 1 };
+    for (const cell of building.cells) {
+      const boundary = [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => !building.cellSet.has(`${cell.x + dx},${cell.y + dy}`));
+      if (boundary) setTile(world, cell.x, cell.y, TILE.WALL);
+    }
+    const preferredSide = closestRoadSide(world, rect);
+    const boundaryBySide = {
+      north: building.cells.filter((cell) => cell.y === rect.y && getTile(world, cell.x, cell.y) === TILE.WALL),
+      south: building.cells.filter((cell) => cell.y === rect.y + rect.h - 1 && getTile(world, cell.x, cell.y) === TILE.WALL),
+      west: building.cells.filter((cell) => cell.x === rect.x && getTile(world, cell.x, cell.y) === TILE.WALL),
+      east: building.cells.filter((cell) => cell.x === rect.x + rect.w - 1 && getTile(world, cell.x, cell.y) === TILE.WALL)
+    };
+    const entryCandidates = boundaryBySide[preferredSide].length ? boundaryBySide[preferredSide] : Object.values(boundaryBySide).flat();
+    const centerX = rect.x + (rect.w - 1) / 2;
+    const centerY = rect.y + (rect.h - 1) / 2;
+    entryCandidates.sort((a, b) => Math.hypot(a.x - centerX, a.y - centerY) - Math.hypot(b.x - centerX, b.y - centerY));
+    const entry = entryCandidates[0];
+    const entryStyle = type === "hospital" ? "glass" : type === "grocery" ? "automatic" : type === "prison" ? "steel" : "wood";
+    if (entry) {
+      addDoor(world, building, entry.x, entry.y, preferredSide, true, entryStyle);
+      const wideEntrance = ["hospital", "grocery", "sheriff"].includes(type);
+      if (wideEntrance) {
+        const adjacent = preferredSide === "north" || preferredSide === "south" ? { x: entry.x + (entry.x < centerX ? 1 : -1), y: entry.y } : { x: entry.x, y: entry.y + (entry.y < centerY ? 1 : -1) };
+        if (getTile(world, adjacent.x, adjacent.y) === TILE.WALL) addDoor(world, building, adjacent.x, adjacent.y, preferredSide, true, entryStyle);
+      }
+      const signCandidates = boundaryBySide[preferredSide].filter((cell) => getTile(world, cell.x, cell.y) === TILE.WALL);
+      signCandidates.sort((a, b) => Math.hypot(a.x - entry.x, a.y - entry.y) - Math.hypot(b.x - entry.x, b.y - entry.y));
+      building.signTile = signCandidates[0] || null;
+    }
+    const x1 = rect.x + 1;
+    const x2 = rect.x + rect.w - 2;
+    const y1 = rect.y + 1;
+    const y2 = rect.y + rect.h - 2;
+    const midX = rect.x + Math.floor(rect.w / 2);
+    const midY = rect.y + Math.floor(rect.h / 2);
+    if (type === "house") {
+      addPartition(world, building, "vertical", midX, y1, y2, [midY]);
+      if (rect.h >= 9) addPartition(world, building, "horizontal", rect.y + Math.floor(rect.h * 0.62), x1, midX - 1, [rect.x + 2]);
+    } else if (type === "grocery") {
+      addPartition(world, building, "horizontal", rect.y + rect.h - 3, x1, x2, [midX]);
+    } else if (type === "hospital") {
+      addPartition(world, building, "vertical", midX, y1, y2, [rect.y + 2, midY, rect.y + rect.h - 3]);
+      addPartition(world, building, "horizontal", midY, x1, x2, [rect.x + 2, midX, rect.x + rect.w - 3]);
+    } else if (type === "sheriff") {
+      const lobbyWall = rect.y + Math.min(3, rect.h - 3);
+      addPartition(world, building, "horizontal", lobbyWall, x1, x2, [midX]);
+      addPartition(world, building, "vertical", midX, lobbyWall + 1, y2, [Math.min(y2, lobbyWall + 2)]);
+    } else if (type === "prison") {
+      if (variant === "courtyard_block") {
+        addDoor(world, building, midX, rect.y + 2, "north", false, "barred");
+        addDoor(world, building, midX, rect.y + rect.h - 3, "south", false, "barred");
+        for (const cell of building.cells) {
+          const innerEdge = cell.x === rect.x + 2 || cell.x === rect.x + rect.w - 3 || cell.y === rect.y + 2 || cell.y === rect.y + rect.h - 3;
+          if (innerEdge && getTile(world, cell.x, cell.y) === TILE.WALL && (cell.x + cell.y) % 2 === 0) building.barTiles.push({ x: cell.x, y: cell.y });
+        }
       } else {
-        window2 = { x: rng.chance(0.5) ? rect.x : rect.x + rect.w - 1, y: rng.int(rect.y + 1, rect.y + rect.h - 2) };
+        addPartition(world, building, "vertical", midX, y1, y2, [rect.y + 2, midY, rect.y + rect.h - 3]);
+        for (let y = rect.y + 3; y < rect.y + rect.h - 2; y += 3) {
+          addPartition(world, building, "horizontal", y, x1, midX - 1, [midX - 2]);
+          addPartition(world, building, "horizontal", y, midX + 1, x2, [midX + 2]);
+        }
       }
-      if (window2.x !== door.x || window2.y !== door.y) building.windows.push(window2);
+    } else if (type === "warehouse") {
+      addPartition(world, building, "vertical", rect.x + Math.min(3, rect.w - 3), y1, rect.y + Math.min(4, rect.h - 2), [rect.y + 2]);
     }
-    const containerCount = type === "warehouse" ? rng.int(3, 6) : rng.int(2, 4);
+    const exteriorWalls = Object.values(boundaryBySide).flat().filter((cell) => getTile(world, cell.x, cell.y) === TILE.WALL);
+    const desiredWindows = type === "prison" ? 4 : type === "hospital" ? 10 : type === "grocery" ? 8 : Math.max(3, Math.floor((rect.w + rect.h) / 4));
+    const windowPool = rng.shuffle(exteriorWalls.filter((cell) => !building.signTile || cell.x !== building.signTile.x || cell.y !== building.signTile.y));
+    for (const cell of windowPool.slice(0, Math.min(desiredWindows, windowPool.length))) {
+      building.windows.push({ x: cell.x, y: cell.y, barred: type === "prison" });
+    }
+    const doorKeys = new Set(building.doors.map((door) => `${door.x},${door.y}`));
+    const edgeFloors = building.cells.filter((cell) => {
+      if (getTile(world, cell.x, cell.y) !== TILE.FLOOR || doorKeys.has(`${cell.x},${cell.y}`)) return false;
+      return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => getTile(world, cell.x + dx, cell.y + dy) === TILE.WALL);
+    });
+    const allFloors = building.cells.filter((cell) => getTile(world, cell.x, cell.y) === TILE.FLOOR && !doorKeys.has(`${cell.x},${cell.y}`));
+    const furniturePool = rng.shuffle(edgeFloors.length >= 3 ? edgeFloors : allFloors);
+    const countRange = type === "hospital" ? [7, 10] : type === "grocery" ? [6, 9] : type === "prison" ? [7, 11] : type === "sheriff" ? [5, 8] : type === "warehouse" ? [4, 7] : [2, 4];
+    const containerCount = Math.min(furniturePool.length, rng.int(countRange[0], countRange[1]));
+    const kinds = furnishKinds(type);
+    const placed = [];
     for (let i = 0; i < containerCount; i += 1) {
-      const rollX = rng.int(rect.x + 1, rect.x + rect.w - 2);
-      const rollY = rng.int(rect.y + 1, rect.y + rect.h - 2);
-      const sides = ["north", "east", "south", "west"];
-      const side2 = sides[Math.abs(rollX + rollY + i) % sides.length];
-      const tx = side2 === "west" ? rect.x + 1 : side2 === "east" ? rect.x + rect.w - 2 : rollX;
-      const ty = side2 === "north" ? rect.y + 1 : side2 === "south" ? rect.y + rect.h - 2 : rollY;
-      let kind = "cupboard";
-      if (type === "house") kind = i === 0 ? "fridge" : i % 2 ? "dresser" : "cupboard";
-      else if (type === "store") kind = i % 2 ? "counter" : "shelf";
-      else if (type === "clinic") kind = i % 2 ? "medical_cabinet" : "supply_cart";
-      else if (type === "police") kind = i % 2 ? "desk" : "locker";
-      else if (type === "warehouse") kind = "crate";
+      const cellIndex = furniturePool.findIndex((cell2) => placed.every((other) => Math.hypot(cell2.x - other.x, cell2.y - other.y) >= 1.8));
+      if (cellIndex < 0) break;
+      const cell = furniturePool.splice(cellIndex, 1)[0];
+      placed.push(cell);
+      const wallSide = [[0, -1, "north"], [1, 0, "east"], [0, 1, "south"], [-1, 0, "west"]].find(([dx, dy]) => getTile(world, cell.x + dx, cell.y + dy) === TILE.WALL);
+      const side = wallSide?.[2] || rng.pick(["north", "east", "south", "west"]);
       world.containers.push({
         id: `${id}-c${i}`,
         buildingId: id,
-        x: (tx + 0.5) * world.tileSize,
-        y: (ty + 0.5) * world.tileSize,
-        kind,
-        side: side2,
+        chunkKey: world.activeChunkKey || null,
+        x: (cell.x + 0.5) * world.tileSize,
+        y: (cell.y + 0.5) * world.tileSize,
+        kind: kinds[i % kinds.length],
+        side,
         searched: false,
-        loot: createLoot(rng, BUILDING_TYPES[type].loot, 1, type === "police" ? 5 : 4)
+        loot: createLoot(rng, BUILDING_TYPES[type].loot, 1, ["hospital", "sheriff", "prison"].includes(type) ? 5 : 4)
       });
     }
+    delete building.cellSet;
     world.buildings.push(building);
     return building;
   }
@@ -494,7 +721,7 @@
           const w = Math.max(6, lot.w - marginX - rng.int(0, 1));
           const h = Math.max(6, lot.h - marginY - rng.int(0, 1));
           const rect = { x: lot.x + marginX, y: lot.y + marginY, w, h };
-          addBuilding(world, rng, rect, chooseBuildingType(rng, distance2));
+          addBuilding(world, rng, rect, chooseBuildingType(rng, distance2, rect));
         }
       }
     }
@@ -542,9 +769,15 @@
       return ad - bd;
     })[0];
     if (building) {
+      const floors = (building.cells || []).filter((cell) => getTile(world, cell.x, cell.y) === TILE.FLOOR).sort((a, b) => {
+        const ad = Math.hypot(a.x - (building.x + building.w / 2), a.y - (building.y + building.h / 2));
+        const bd = Math.hypot(b.x - (building.x + building.w / 2), b.y - (building.y + building.h / 2));
+        return ad - bd;
+      });
+      const spawnCell = floors[0] || { x: building.x + Math.floor(building.w / 2), y: building.y + Math.floor(building.h / 2) };
       return {
-        x: (building.x + Math.floor(building.w / 2) + 0.5) * world.tileSize,
-        y: (building.y + Math.floor(building.h / 2) + 0.5) * world.tileSize,
+        x: (spawnCell.x + 0.5) * world.tileSize,
+        y: (spawnCell.y + 0.5) * world.tileSize,
         buildingId: building.id
       };
     }
@@ -571,11 +804,11 @@
       });
     }
   }
-  function generateWorld(seed, size = DEFAULT_WORLD_SIZE) {
+  function generateFiniteWorld(seed, size) {
     const safeSize = Math.max(72, Math.min(512, Math.floor(size)));
     const rng = new RNG(seed);
     const world = {
-      version: 1,
+      version: 2,
       seed: rng.seed,
       width: safeSize,
       height: safeSize,
@@ -600,6 +833,197 @@
     world.spawn = findSpawn(world);
     spawnZombies(world, rng);
     return world;
+  }
+  function chunkCoordinates(world, tileX, tileY) {
+    return {
+      cx: Math.floor(tileX / world.chunkSize),
+      cy: Math.floor(tileY / world.chunkSize)
+    };
+  }
+  function chunkInBounds(world, cx, cy) {
+    const max = Math.ceil(world.width / world.chunkSize);
+    return cx >= 0 && cy >= 0 && cx < max && cy < max;
+  }
+  function restoreChunkState(world, chunk) {
+    const state = world.chunkStates.get(chunk.key);
+    if (!state) return;
+    const containers = new Map((state.containers || []).map((entry) => [entry.id, entry]));
+    for (const container of chunk.containers) Object.assign(container, containers.get(container.id) || {});
+    const cars = new Map((state.cars || []).map((entry) => [entry.id, entry]));
+    for (const car of chunk.cars) Object.assign(car, cars.get(car.id) || {});
+    const cleared = new Set(state.clearedZombieIds || []);
+    if (cleared.size) {
+      chunk.zombieSpawns = chunk.zombieSpawns.filter((spawn) => !cleared.has(spawn.id));
+      world.zombieSpawns = world.zombieSpawns.filter((spawn) => spawn.chunkKey !== chunk.key || !cleared.has(spawn.id));
+    }
+  }
+  function addChunkCars(world, chunk, rng) {
+    const count = rng.int(2, 5);
+    const x0 = chunk.cx * world.chunkSize;
+    const y0 = chunk.cy * world.chunkSize;
+    for (let i = 0; i < count; i += 1) {
+      const vertical = rng.chance(0.5);
+      const localRoad = rng.pick([0, ROAD_SPACING]);
+      const tx = vertical ? x0 + localRoad : x0 + rng.int(3, world.chunkSize - 4);
+      const ty = vertical ? y0 + rng.int(3, world.chunkSize - 4) : y0 + localRoad;
+      if (!inBounds(world, tx, ty) || getTile(world, tx, ty) !== TILE.ROAD) continue;
+      const car = {
+        id: `${chunk.key}-car${i}`,
+        chunkKey: chunk.key,
+        x: (tx + 0.5) * world.tileSize,
+        y: (ty + 0.5) * world.tileSize,
+        w: vertical ? 24 : 52,
+        h: vertical ? 52 : 24,
+        color: rng.pick(["#6d3732", "#374b55", "#5d5a4b", "#303536", "#6b6748", "#4d425c"]),
+        searched: false,
+        loot: createLoot(rng, "car", 0, 3)
+      };
+      world.cars.push(car);
+    }
+  }
+  function addChunkZombies(world, chunk, rng) {
+    const x0 = chunk.cx * world.chunkSize;
+    const y0 = chunk.cy * world.chunkSize;
+    const count = rng.int(5, 9);
+    for (let i = 0, attempts = 0; i < count && attempts < count * 12; attempts += 1) {
+      const tx = x0 + rng.int(2, world.chunkSize - 3);
+      const ty = y0 + rng.int(2, world.chunkSize - 3);
+      if (!inBounds(world, tx, ty) || !isWalkable(world, tx, ty)) continue;
+      const x = (tx + 0.5) * world.tileSize;
+      const y = (ty + 0.5) * world.tileSize;
+      if (world.spawn && Math.hypot(x - world.spawn.x, y - world.spawn.y) < 360) continue;
+      const spawn = {
+        id: `${chunk.key}-z${i}`,
+        chunkKey: chunk.key,
+        x,
+        y,
+        speed: rng.float(32, 50),
+        health: rng.int(45, 70),
+        hue: rng.int(-8, 8)
+      };
+      world.zombieSpawns.push(spawn);
+      i += 1;
+    }
+  }
+  function generateChunk(world, cx, cy) {
+    const key2 = `${cx},${cy}`;
+    if (!world.chunked || !chunkInBounds(world, cx, cy)) return null;
+    if (world.chunks.has(key2)) return world.chunks.get(key2);
+    const chunk = {
+      key: key2,
+      cx,
+      cy,
+      tiles: new Uint8Array(world.chunkSize * world.chunkSize),
+      buildings: [],
+      containers: [],
+      cars: [],
+      zombieSpawns: []
+    };
+    world.chunks.set(key2, chunk);
+    const x0 = cx * world.chunkSize;
+    const y0 = cy * world.chunkSize;
+    for (let ly = 0; ly < world.chunkSize; ly += 1) {
+      for (let lx = 0; lx < world.chunkSize; lx += 1) {
+        const x = x0 + lx;
+        const y = y0 + ly;
+        chunk.tiles[ly * world.chunkSize + lx] = inBounds(world, x, y) ? proceduralBaseTile(world, x, y) : TILE.WALL;
+      }
+    }
+    const rng = new RNG(`${world.seed}:CHUNK:${key2}`);
+    world.activeChunkKey = key2;
+    world.activeChunkBuildingIndex = 0;
+    const beforeBuildings = world.buildings.length;
+    const beforeContainers = world.containers.length;
+    const beforeCars = world.cars.length;
+    const beforeZombies = world.zombieSpawns.length;
+    const roadsX = [x0, x0 + ROAD_SPACING, x0 + world.chunkSize];
+    const roadsY = [y0, y0 + ROAD_SPACING, y0 + world.chunkSize];
+    generateBlocks(world, rng, roadsX, roadsY);
+    addChunkCars(world, chunk, rng);
+    addChunkZombies(world, chunk, rng);
+    chunk.buildings = world.buildings.slice(beforeBuildings);
+    chunk.containers = world.containers.slice(beforeContainers);
+    chunk.cars = world.cars.slice(beforeCars);
+    chunk.zombieSpawns = world.zombieSpawns.slice(beforeZombies);
+    restoreChunkState(world, chunk);
+    delete world.activeChunkKey;
+    delete world.activeChunkBuildingIndex;
+    return chunk;
+  }
+  function unloadChunk(world, key2) {
+    const chunk = world.chunks.get(key2);
+    if (!chunk) return;
+    world.chunkStates.set(key2, {
+      ...world.chunkStates.get(key2) || {},
+      containers: chunk.containers.filter((entry) => entry.searched).map(({ id, searched, loot }) => ({ id, searched, loot })),
+      cars: chunk.cars.filter((entry) => entry.searched).map(({ id, searched, loot }) => ({ id, searched, loot }))
+    });
+    world.buildings = world.buildings.filter((entry) => entry.chunkKey !== key2);
+    world.containers = world.containers.filter((entry) => entry.chunkKey !== key2);
+    world.cars = world.cars.filter((entry) => entry.chunkKey !== key2);
+    world.zombieSpawns = world.zombieSpawns.filter((entry) => entry.chunkKey !== key2);
+    world.chunks.delete(key2);
+  }
+  function streamWorldChunks(world, tileX, tileY, loadRadius = 2, keepRadius = 3) {
+    if (!world.chunked) return { added: [], removed: [], changed: false };
+    const { cx, cy } = chunkCoordinates(world, tileX, tileY);
+    const wanted = /* @__PURE__ */ new Set();
+    const added = [];
+    for (let dy = -loadRadius; dy <= loadRadius; dy += 1) {
+      for (let dx = -loadRadius; dx <= loadRadius; dx += 1) {
+        const nextX = cx + dx;
+        const nextY = cy + dy;
+        if (!chunkInBounds(world, nextX, nextY)) continue;
+        const key2 = `${nextX},${nextY}`;
+        wanted.add(key2);
+        if (!world.chunks.has(key2)) {
+          generateChunk(world, nextX, nextY);
+          added.push(key2);
+        }
+      }
+    }
+    const removed = [];
+    for (const [key2, chunk] of [...world.chunks]) {
+      if (wanted.has(key2)) continue;
+      if (Math.abs(chunk.cx - cx) <= keepRadius && Math.abs(chunk.cy - cy) <= keepRadius) continue;
+      unloadChunk(world, key2);
+      removed.push(key2);
+    }
+    world.centerChunk = `${cx},${cy}`;
+    return { added, removed, changed: added.length > 0 || removed.length > 0 };
+  }
+  function createChunkedWorld(seed) {
+    const rng = new RNG(seed);
+    const world = {
+      version: 3,
+      seed: rng.seed,
+      width: DEFAULT_WORLD_SIZE,
+      height: DEFAULT_WORLD_SIZE,
+      tileSize: TILE_SIZE,
+      chunked: true,
+      chunkSize: CHUNK_SIZE,
+      chunks: /* @__PURE__ */ new Map(),
+      chunkStates: /* @__PURE__ */ new Map(),
+      buildings: [],
+      containers: [],
+      cars: [],
+      zombieSpawns: [],
+      spawn: null,
+      roadX: [],
+      roadY: []
+    };
+    const center = Math.floor(world.width / 2);
+    streamWorldChunks(world, center, center, 2, 3);
+    world.spawn = findSpawn(world);
+    world.zombieSpawns = world.zombieSpawns.filter((spawn) => Math.hypot(spawn.x - world.spawn.x, spawn.y - world.spawn.y) >= 360);
+    for (const chunk of world.chunks.values()) {
+      chunk.zombieSpawns = chunk.zombieSpawns.filter((spawn) => world.zombieSpawns.includes(spawn));
+    }
+    return world;
+  }
+  function generateWorld(seed, size) {
+    if (Number.isFinite(size)) return generateFiniteWorld(seed, size);
+    return createChunkedWorld(seed);
   }
 
   // src/pathfinding.js
@@ -714,8 +1138,8 @@
 
   // src/game.js
   var SAVE_KEY = "hollow-county-save-v1";
-  var SAVE_VERSION = 2;
-  var CAMERA_ZOOM = 1.38;
+  var SAVE_VERSION = 3;
+  var CAMERA_ZOOM = 1.5;
   var FISTS = { name: "Bare hands", mode: "melee", damage: 7, range: 40, cooldown: 0.48, noise: 25, staminaCost: 9 };
   var STREET_NAMES = ["Mercy", "Harrow", "Cinder", "Morrow", "Stillwater", "Rook", "Lantern", "Graves", "Hollow", "Ash"];
   var WEATHER = ["OVERCAST", "LIGHT RAIN", "COLD WIND", "LOW FOG", "CLEARING"];
@@ -757,7 +1181,20 @@
     supply_cart: [25, 18],
     locker: [24, 20],
     desk: [30, 20],
-    crate: [24, 24]
+    crate: [24, 24],
+    table: [27, 21],
+    checkout: [30, 20],
+    freezer: [30, 21],
+    reception: [31, 21],
+    hospital_bed: [29, 18],
+    gurney: [28, 17],
+    evidence_cabinet: [27, 19],
+    gun_locker: [27, 20],
+    cell_locker: [23, 19],
+    canteen_table: [30, 19],
+    guard_desk: [30, 20],
+    workbench: [30, 20],
+    tool_cabinet: [27, 19]
   });
   function furnitureSize(container) {
     const base = FURNITURE_SIZES[container.kind] || [26, 20];
@@ -805,7 +1242,22 @@
     ctx.translate(x, y);
     ctx.rotate(angle);
     ctx.lineCap = "round";
-    if (id === "shotgun") {
+    if (id === "double_barrel") {
+      ctx.fillStyle = "#211912";
+      roundedRectPath(ctx, -11, -4, 21, 8, 3);
+      ctx.fill();
+      ctx.fillStyle = "#805333";
+      roundedRectPath(ctx, -10, -3, 20, 6, 2);
+      ctx.fill();
+      ctx.fillStyle = "#202625";
+      ctx.fillRect(7, -4, 24, 3);
+      ctx.fillRect(7, 1, 24, 3);
+      ctx.fillStyle = "#a6aca8";
+      ctx.fillRect(9, -3, 21, 1);
+      ctx.fillRect(9, 2, 21, 1);
+      ctx.fillStyle = "#c4a85e";
+      ctx.fillRect(7, -3, 3, 6);
+    } else if (id === "shotgun") {
       ctx.fillStyle = "#201b16";
       roundedRectPath(ctx, -10, -4, 17, 8, 3);
       ctx.fill();
@@ -819,6 +1271,30 @@
       ctx.fillStyle = "#66452b";
       roundedRectPath(ctx, 10, -4, 9, 7, 2);
       ctx.fill();
+    } else if (id === "carbine") {
+      ctx.fillStyle = "#171d1c";
+      roundedRectPath(ctx, -11, -4, 26, 8, 3);
+      ctx.fill();
+      ctx.fillStyle = "#46524e";
+      roundedRectPath(ctx, -7, -3, 22, 6, 2);
+      ctx.fill();
+      ctx.fillStyle = "#202625";
+      ctx.fillRect(13, -2, 21, 3);
+      ctx.fillStyle = "#87918c";
+      ctx.fillRect(15, -1, 18, 1);
+      ctx.fillStyle = "#252c2a";
+      ctx.beginPath();
+      ctx.moveTo(1, 3);
+      ctx.lineTo(8, 3);
+      ctx.lineTo(7, 13);
+      ctx.lineTo(2, 12);
+      ctx.closePath();
+      ctx.fill();
+      ctx.fillStyle = "#222a28";
+      roundedRectPath(ctx, 5, -7, 13, 3, 1);
+      ctx.fill();
+      ctx.fillStyle = "#6e8d8a";
+      ctx.fillRect(8, -6, 6, 1);
     } else if (id === "rifle") {
       ctx.fillStyle = "#211a14";
       roundedRectPath(ctx, -11, -4, 22, 8, 3);
@@ -894,7 +1370,7 @@
     ctx.restore();
   }
   function meleeModelLength(id) {
-    return { knife: 12, machete: 21, bat: 21, axe: 20, crowbar: 22, spear: 29, sledgehammer: 22 }[id] || 17;
+    return { knife: 12, hammer: 15, machete: 21, katana: 25, bat: 21, axe: 20, crowbar: 22, spear: 29, sledgehammer: 22 }[id] || 17;
   }
   function drawMeleeWeaponModel(ctx, id, x, y, aimX, aimY) {
     const angle = Math.atan2(aimY, aimX);
@@ -920,6 +1396,29 @@
       ctx.moveTo(6, 0);
       ctx.lineTo(length - 2, 0);
       ctx.stroke();
+    } else if (id === "hammer") {
+      ctx.strokeStyle = "#2f2117";
+      ctx.lineWidth = 5;
+      ctx.beginPath();
+      ctx.moveTo(-2, 0);
+      ctx.lineTo(length, 0);
+      ctx.stroke();
+      ctx.strokeStyle = "#795237";
+      ctx.lineWidth = 3;
+      ctx.beginPath();
+      ctx.moveTo(-2, 0);
+      ctx.lineTo(length, 0);
+      ctx.stroke();
+      ctx.fillStyle = "#9ca5a1";
+      roundedRectPath(ctx, length - 3, -6, 8, 12, 2);
+      ctx.fill();
+      ctx.fillStyle = "#4b5350";
+      ctx.beginPath();
+      ctx.moveTo(length + 4, -5);
+      ctx.lineTo(length + 9, -2);
+      ctx.lineTo(length + 4, 0);
+      ctx.closePath();
+      ctx.fill();
     } else if (id === "machete") {
       ctx.fillStyle = "#2b251f";
       roundedRectPath(ctx, -2, -3, 8, 6, 2);
@@ -941,6 +1440,26 @@
       ctx.lineTo(7, 0);
       ctx.closePath();
       ctx.fill();
+    } else if (id === "katana") {
+      ctx.fillStyle = "#25201c";
+      roundedRectPath(ctx, -4, -2.5, 11, 5, 2);
+      ctx.fill();
+      ctx.fillStyle = "#c6a85b";
+      ctx.fillRect(5, -4, 2, 8);
+      ctx.fillStyle = "#d7dedb";
+      ctx.beginPath();
+      ctx.moveTo(7, -2);
+      ctx.quadraticCurveTo(length - 1, -4, length + 4, -1);
+      ctx.lineTo(length + 2, 1);
+      ctx.quadraticCurveTo(length - 1, 1, 7, 2);
+      ctx.closePath();
+      ctx.fill();
+      ctx.strokeStyle = "#7e8b87";
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.moveTo(9, 0);
+      ctx.lineTo(length + 1, -1);
+      ctx.stroke();
     } else if (id === "crowbar") {
       ctx.strokeStyle = "#271714";
       ctx.lineWidth = 5;
@@ -1081,9 +1600,12 @@
       this.panelOpen = null;
       this.buildMode = null;
       this.attackHeld = false;
-      this.windowTiles = /* @__PURE__ */ new Set();
-      this.doorTiles = /* @__PURE__ */ new Set();
+      this.windowTiles = /* @__PURE__ */ new Map();
+      this.doorTiles = /* @__PURE__ */ new Map();
+      this.barTiles = /* @__PURE__ */ new Set();
+      this.signTiles = /* @__PURE__ */ new Map();
       this.buildingLookup = /* @__PURE__ */ new Map();
+      this.lastStreamChunk = null;
       this.stats = { searched: 0 };
       this.input = new InputController(
         this.canvas,
@@ -1159,6 +1681,8 @@
       this.indexWorld();
       this.player = this.makePlayer();
       this.zombies = this.world.zombieSpawns.map((spawn) => this.makeZombie(spawn));
+      this.lastStreamChunk = null;
+      this.updateWorldStreaming(true);
       this.structures = [];
       this.noises = [];
       this.effects = [];
@@ -1226,7 +1750,8 @@
       return {
         ...spawn,
         radius: 12,
-        maxHealth: spawn.health,
+        health: spawn.health || spawn.maxHealth || 60,
+        maxHealth: spawn.maxHealth || spawn.health || 60,
         state: "wander",
         targetX: spawn.x,
         targetY: spawn.y,
@@ -1252,16 +1777,34 @@
     indexWorld() {
       this.windowTiles.clear();
       this.doorTiles.clear();
+      this.barTiles.clear();
+      this.signTiles.clear();
       this.buildingLookup.clear();
       for (const building of this.world.buildings) {
-        for (const window2 of building.windows) this.windowTiles.add(`${window2.x},${window2.y}`);
-        for (const door of building.doors) this.doorTiles.add(`${door.x},${door.y}`);
-        for (let y = building.y; y < building.y + building.h; y += 1) {
-          for (let x = building.x; x < building.x + building.w; x += 1) {
-            this.buildingLookup.set(`${x},${y}`, building);
-          }
-        }
+        for (const window2 of building.windows || []) this.windowTiles.set(`${window2.x},${window2.y}`, window2);
+        for (const door of building.doors || []) this.doorTiles.set(`${door.x},${door.y}`, door);
+        for (const bar of building.barTiles || []) this.barTiles.add(`${bar.x},${bar.y}`);
+        if (building.signTile) this.signTiles.set(`${building.signTile.x},${building.signTile.y}`, building);
+        for (const cell of building.cells || []) this.buildingLookup.set(`${cell.x},${cell.y}`, building);
       }
+    }
+    updateWorldStreaming(force = false) {
+      if (!this.world?.chunked || !this.player) return;
+      const tileX = Math.floor(this.player.x / TILE_SIZE);
+      const tileY = Math.floor(this.player.y / TILE_SIZE);
+      const chunkKey = `${Math.floor(tileX / CHUNK_SIZE)},${Math.floor(tileY / CHUNK_SIZE)}`;
+      if (!force && chunkKey === this.lastStreamChunk) return;
+      const result = streamWorldChunks(this.world, tileX, tileY, 2, 3);
+      this.lastStreamChunk = chunkKey;
+      if (!result.changed) return;
+      const removed = new Set(result.removed);
+      this.zombies = (this.zombies || []).filter((zombie) => !removed.has(zombie.chunkKey));
+      const existing = new Set(this.zombies.map((zombie) => zombie.id));
+      const added = new Set(result.added);
+      for (const spawn of this.world.zombieSpawns) {
+        if (added.has(spawn.chunkKey) && !existing.has(spawn.id)) this.zombies.push(this.makeZombie(spawn));
+      }
+      this.indexWorld();
     }
     handleAction(action, value) {
       if (action === "key") {
@@ -1304,6 +1847,7 @@
     }
     update(dt) {
       this.updatePlayer(dt);
+      this.updateWorldStreaming();
       this.updateSurvival(dt);
       this.updateZombies(dt);
       this.updateStructures(dt);
@@ -1695,6 +2239,16 @@
         this.emitNoise(player.x, player.y, weapon.noise, weapon.name);
         this.camera.shake = weapon.pellets ? 10 : player.equipped === "rifle" ? 8 : player.equipped === "revolver" ? 6 : 5;
         this.effects.push({ type: "muzzle", x: player.x + aim.x * 18, y: player.y + aim.y * 18, life: 0.09, maxLife: 0.09 });
+        this.effects.push({
+          type: "casing",
+          x: player.x - aim.y * 8,
+          y: player.y + aim.x * 8,
+          vx: -aim.y * (45 + Math.random() * 35) - aim.x * 12,
+          vy: aim.x * (45 + Math.random() * 35) - aim.y * 12,
+          life: 0.42,
+          maxLife: 0.42,
+          shell: weapon.ammo === "shell"
+        });
         this.updateHotbar();
       } else {
         player.attackMode = "melee";
@@ -1719,7 +2273,8 @@
           const critical = Math.random() < 0.12;
           this.damageZombie(best, weapon.damage * (critical ? 1.75 : 1), aim.x * 14, aim.y * 14);
         }
-        this.effects.push({ type: "swing", x: player.x, y: player.y, angle: Math.atan2(aim.y, aim.x), life: 0.14, maxLife: 0.14, range: weapon.range });
+        const swingStyle = ["knife", "spear"].includes(player.equipped) ? "thrust" : ["axe", "hammer", "sledgehammer"].includes(player.equipped) ? "overhead" : "sweep";
+        this.effects.push({ type: "swing", style: swingStyle, x: player.x, y: player.y, angle: Math.atan2(aim.y, aim.x), life: 0.14, maxLife: 0.14, range: weapon.range });
       }
     }
     traceShot(angle, weapon) {
@@ -1764,6 +2319,11 @@
         zombie.attackAnim = 0;
         zombie.remove = false;
         this.player.kills += 1;
+        if (zombie.chunkKey && !String(zombie.id).startsWith("h")) {
+          const state = this.world.chunkStates.get(zombie.chunkKey) || {};
+          state.clearedZombieIds = [.../* @__PURE__ */ new Set([...state.clearedZombieIds || [], zombie.id])];
+          this.world.chunkStates.set(zombie.chunkKey, state);
+        }
         this.addBlood(zombie.x, zombie.y, 8);
         this.effects.push({ type: "death", x: zombie.x, y: zombie.y, life: 8, maxLife: 8 });
         if (this.player.kills === 1) this.toast("First kill. The noise may bring more.");
@@ -2166,7 +2726,8 @@
         const x = clamp(this.player.x + Math.cos(angle) * radius, 40, this.world.width * TILE_SIZE - 40);
         const y = clamp(this.player.y + Math.sin(angle) * radius, 40, this.world.height * TILE_SIZE - 40);
         if (isSolidTile(getTile(this.world, Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE)))) continue;
-        this.zombies.push(this.makeZombie({ id: `h${Date.now()}-${i}`, x, y, speed: 35 + Math.random() * 17, health: 48 + Math.random() * 22, hue: 0 }));
+        const chunkKey = `${Math.floor(x / TILE_SIZE / CHUNK_SIZE)},${Math.floor(y / TILE_SIZE / CHUNK_SIZE)}`;
+        this.zombies.push(this.makeZombie({ id: `h${Date.now()}-${i}`, chunkKey, x, y, speed: 35 + Math.random() * 17, health: 48 + Math.random() * 22, hue: 0 }));
       }
     }
     nightStrength() {
@@ -2230,23 +2791,13 @@
         $("#locationLabel").textContent = building.name.toUpperCase();
         return;
       }
-      let roadIndex = -1;
-      let best = 4;
-      this.world.roadX.forEach((road, index) => {
-        const d = Math.abs(tx - road);
-        if (d < best) {
-          best = d;
-          roadIndex = index;
-        }
-      });
-      this.world.roadY.forEach((road, index) => {
-        const d = Math.abs(ty - road);
-        if (d < best) {
-          best = d;
-          roadIndex = index + 5;
-        }
-      });
-      $("#locationLabel").textContent = roadIndex >= 0 ? `${STREET_NAMES[roadIndex % STREET_NAMES.length].toUpperCase()} ROAD` : "HOLLOW COUNTY";
+      const roadX = Math.round(tx / ROAD_SPACING) * ROAD_SPACING;
+      const roadY = Math.round(ty / ROAD_SPACING) * ROAD_SPACING;
+      const xDistance = Math.abs(tx - roadX);
+      const yDistance = Math.abs(ty - roadY);
+      const roadIndex = xDistance < 4 || yDistance < 4 ? xDistance < yDistance ? Math.floor(roadX / ROAD_SPACING) : Math.floor(roadY / ROAD_SPACING) + 5 : -1;
+      const sector = `${Math.floor(tx / CHUNK_SIZE)}-${Math.floor(ty / CHUNK_SIZE)}`;
+      $("#locationLabel").textContent = roadIndex >= 0 ? `${STREET_NAMES[Math.abs(roadIndex) % STREET_NAMES.length].toUpperCase()} ROAD` : `HOLLOW COUNTY \u2022 SECTOR ${sector}`;
     }
     updateObjective() {
       const text = $("#objective").querySelector("p");
@@ -2327,8 +2878,18 @@
     }
     saveGame() {
       if (!this.world || !this.player || this.mode === "dead") return;
+      if (this.world.chunked) {
+        for (const [key2, chunk] of this.world.chunks) {
+          this.world.chunkStates.set(key2, {
+            ...this.world.chunkStates.get(key2) || {},
+            containers: chunk.containers.filter((entry) => entry.searched).map(({ id, searched, loot }) => ({ id, searched, loot })),
+            cars: chunk.cars.filter((entry) => entry.searched).map(({ id, searched, loot }) => ({ id, searched, loot }))
+          });
+        }
+      }
       const save = {
         version: SAVE_VERSION,
+        chunked: Boolean(this.world.chunked),
         savedAt: Date.now(),
         seed: this.world.seed,
         worldSize: this.world.width,
@@ -2338,8 +2899,9 @@
         player: this.player,
         zombies: this.zombies.filter((zombie) => !zombie.dead).map(({ path, ...zombie }) => ({ ...zombie, path: [] })),
         structures: this.structures,
-        containers: this.world.containers.map(({ id, searched, loot }) => ({ id, searched, loot })),
-        cars: this.world.cars.map(({ id, searched, loot }) => ({ id, searched, loot })),
+        containers: this.world.containers.filter((entry) => entry.searched).map(({ id, searched, loot }) => ({ id, searched, loot })),
+        cars: this.world.cars.filter((entry) => entry.searched).map(({ id, searched, loot }) => ({ id, searched, loot })),
+        chunkStates: this.world.chunked ? [...this.world.chunkStates.entries()] : [],
         blood: this.blood.slice(-160),
         stats: this.stats
       };
@@ -2356,23 +2918,31 @@
       } catch {
         save = null;
       }
-      if (!save || ![1, SAVE_VERSION].includes(save.version)) {
+      if (!save || ![1, 2, SAVE_VERSION].includes(save.version)) {
         this.toastMenu("The save could not be loaded.");
         return;
       }
-      const migratingExpandedCounty = save.version === 1 || !save.worldSize;
-      this.world = generateWorld(save.seed, migratingExpandedCounty ? void 0 : save.worldSize);
-      this.indexWorld();
-      if (!migratingExpandedCounty) {
+      const migratingChunkedCounty = save.version < SAVE_VERSION || !save.chunked;
+      this.world = generateWorld(save.seed);
+      if (!migratingChunkedCounty) this.world.chunkStates = new Map(save.chunkStates || []);
+      this.player = migratingChunkedCounty ? { ...this.makePlayer(), ...save.player || {}, x: this.world.spawn.x, y: this.world.spawn.y } : { ...this.makePlayer(), ...save.player || {} };
+      if (!migratingChunkedCounty) {
+        streamWorldChunks(
+          this.world,
+          Math.floor(this.player.x / TILE_SIZE),
+          Math.floor(this.player.y / TILE_SIZE),
+          2,
+          3
+        );
         const containers = new Map(save.containers?.map((entry) => [entry.id, entry]) || []);
         for (const container of this.world.containers) Object.assign(container, containers.get(container.id) || {});
         const cars = new Map(save.cars?.map((entry) => [entry.id, entry]) || []);
         for (const car of this.world.cars) Object.assign(car, cars.get(car.id) || {});
       }
-      this.player = migratingExpandedCounty ? { ...this.makePlayer(), ...save.player || {}, x: this.world.spawn.x, y: this.world.spawn.y } : save.player;
-      this.zombies = migratingExpandedCounty ? this.world.zombieSpawns.map((spawn) => this.makeZombie(spawn)) : (save.zombies || []).map((zombie) => ({ ...this.makeZombie(zombie), ...zombie, path: [] }));
-      this.structures = migratingExpandedCounty ? [] : save.structures || [];
-      this.blood = migratingExpandedCounty ? [] : save.blood || [];
+      this.indexWorld();
+      this.zombies = migratingChunkedCounty ? this.world.zombieSpawns.map((spawn) => this.makeZombie(spawn)) : (save.zombies || []).map((zombie) => ({ ...this.makeZombie(zombie), ...zombie, path: [] }));
+      this.structures = migratingChunkedCounty ? [] : save.structures || [];
+      this.blood = migratingChunkedCounty ? [] : save.blood || [];
       this.noises = [];
       this.effects = [];
       this.day = save.day || 1;
@@ -2382,6 +2952,8 @@
       this.stats = save.stats || { searched: 0 };
       this.camera.x = this.player.x;
       this.camera.y = this.player.y;
+      this.lastStreamChunk = null;
+      this.updateWorldStreaming(true);
       this.mode = "playing";
       this.menu.classList.add("hidden");
       this.gameScreen.classList.remove("hidden");
@@ -2393,8 +2965,8 @@
       this.renderRecipes();
       this.updateHotbar();
       this.updateObjective();
-      this.toast(migratingExpandedCounty ? "County expanded 10\xD7. Your survivor and gear were moved to the new safe house." : `Survivor loaded \u2014 Day ${this.day}.`);
-      if (migratingExpandedCounty) this.saveGame();
+      this.toast(migratingChunkedCounty ? "County rebuilt with streaming chunks. Your survivor and gear moved to a new safe house." : `Survivor loaded \u2014 Day ${this.day}.`);
+      if (migratingChunkedCounty) this.saveGame();
     }
     refreshSaveSummary() {
       let save;
@@ -2404,7 +2976,7 @@
         save = null;
       }
       const button = $("#continueBtn");
-      if (!save || ![1, SAVE_VERSION].includes(save.version)) {
+      if (!save || ![1, 2, SAVE_VERSION].includes(save.version)) {
         button.disabled = true;
         $("#saveSummary").textContent = "No living survivor found.";
         return;
@@ -2514,11 +3086,11 @@
           ctx.lineTo(p.x + 27, p.y + 18);
           ctx.stroke();
         }
-        if (this.world.roadX.includes(tx) && ty % 3 === 0) {
+        if (isRoadCenter(this.world, "x", tx) && ty % 3 === 0) {
           ctx.fillStyle = "rgba(197,181,124,.25)";
           ctx.fillRect(p.x + 15, p.y + 4, 2, 16);
         }
-        if (this.world.roadY.includes(ty) && tx % 3 === 0) {
+        if (isRoadCenter(this.world, "y", ty) && tx % 3 === 0) {
           ctx.fillStyle = "rgba(197,181,124,.25)";
           ctx.fillRect(p.x + 4, p.y + 15, 16, 2);
         }
@@ -2554,9 +3126,13 @@
             ctx.stroke();
           }
         } else {
-          const clinic = building?.type === "clinic";
-          const police = building?.type === "police";
-          ctx.fillStyle = clinic ? "#777b72" : police ? "#666d70" : "#69675d";
+          const floorColors = {
+            grocery: variation > 0.5 ? "#74735f" : "#6d6d59",
+            hospital: variation > 0.5 ? "#858c84" : "#7c847d",
+            sheriff: variation > 0.5 ? "#697378" : "#626c71",
+            prison: variation > 0.5 ? "#626966" : "#5b625f"
+          };
+          ctx.fillStyle = floorColors[building?.type] || "#69675d";
           ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
           ctx.strokeStyle = "rgba(31,35,32,.22)";
           ctx.lineWidth = 1;
@@ -2568,23 +3144,62 @@
           ctx.fillRect(p.x + 2, p.y + 2, 12, 2);
           ctx.fillRect(p.x + 18, p.y + 18, 12, 2);
         }
-        if (this.doorTiles.has(`${tx},${ty}`)) {
-          ctx.fillStyle = "rgba(16,13,10,.48)";
-          roundedRectPath(ctx, p.x + 3, p.y + 10, 27, 13, 2);
+        const door = this.doorTiles.get(`${tx},${ty}`);
+        if (door) {
+          const vertical = door.orientation === "vertical";
+          ctx.save();
+          ctx.translate(p.x + TILE_SIZE / 2, p.y + TILE_SIZE / 2);
+          if (vertical) ctx.rotate(Math.PI / 2);
+          ctx.fillStyle = "rgba(4,6,5,.55)";
+          roundedRectPath(ctx, -15, -8, 30, 18, 3);
           ctx.fill();
-          ctx.fillStyle = "#6c4d33";
-          roundedRectPath(ctx, p.x + 4, p.y + 9, 24, 11, 1);
+          const glass = door.style === "glass" || door.style === "automatic";
+          const steel = door.style === "steel" || door.style === "barred";
+          ctx.fillStyle = glass ? "#29434a" : steel ? "#4b5554" : door.style === "interior" ? "#755d45" : "#765039";
+          roundedRectPath(ctx, -14, -9, 28, 16, 2);
           ctx.fill();
-          ctx.fillStyle = "#866244";
-          ctx.fillRect(p.x + 5, p.y + 10, 22, 2);
-          ctx.fillStyle = "#d1ae62";
-          ctx.beginPath();
-          ctx.arc(p.x + 24, p.y + 15, 1.5, 0, Math.PI * 2);
-          ctx.fill();
+          if (glass) {
+            ctx.fillStyle = "#416870";
+            ctx.fillRect(-11, -7, 9, 11);
+            ctx.fillRect(2, -7, 9, 11);
+            ctx.fillStyle = "rgba(193,220,216,.34)";
+            ctx.fillRect(-9, -6, 3, 9);
+            ctx.fillRect(4, -6, 3, 9);
+            ctx.fillStyle = "#a9b7af";
+            ctx.fillRect(-1, -7, 2, 12);
+          } else if (door.style === "barred") {
+            ctx.fillStyle = "#222927";
+            ctx.fillRect(-11, -7, 22, 12);
+            ctx.fillStyle = "#7d8984";
+            for (let x = -9; x <= 9; x += 4) ctx.fillRect(x, -7, 2, 12);
+            ctx.fillRect(-11, -2, 22, 2);
+          } else {
+            ctx.fillStyle = steel ? "#75807c" : "#9a704c";
+            ctx.fillRect(-12, -7, 24, 3);
+            ctx.strokeStyle = steel ? "#252c2b" : "#493323";
+            ctx.strokeRect(-11.5, -6.5, 23, 11);
+            ctx.fillStyle = "#d9b85f";
+            ctx.beginPath();
+            ctx.arc(8, 0, 1.6, 0, Math.PI * 2);
+            ctx.fill();
+          }
+          if (door.exterior) {
+            ctx.fillStyle = "rgba(216,198,139,.32)";
+            ctx.fillRect(-15, 8, 30, 3);
+          }
+          ctx.restore();
         }
       } else if (tile === TILE.WALL) {
         const building = this.buildingLookup.get(`${tx},${ty}`);
-        ctx.fillStyle = building?.type === "clinic" ? "#586963" : building?.type === "police" ? "#4b5962" : building?.type === "warehouse" ? "#695f50" : building?.type === "store" ? "#675c4f" : "#5d554a";
+        const wallColors = {
+          hospital: "#60756f",
+          sheriff: "#4d606b",
+          prison: "#596262",
+          warehouse: "#695f50",
+          grocery: "#6e604d",
+          house: "#5d554a"
+        };
+        ctx.fillStyle = wallColors[building?.type] || "#5d554a";
         ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
         ctx.fillStyle = "rgba(238,232,207,.13)";
         ctx.fillRect(p.x, p.y, TILE_SIZE, 4);
@@ -2594,7 +3209,8 @@
         ctx.fillRect(p.x, p.y + 25, TILE_SIZE, 7);
         ctx.fillStyle = "rgba(222,211,183,.09)";
         ctx.fillRect(p.x + 3, p.y + 6, 2, 16);
-        if (this.windowTiles.has(`${tx},${ty}`)) {
+        const windowData = this.windowTiles.get(`${tx},${ty}`);
+        if (windowData) {
           ctx.fillStyle = "#242a28";
           ctx.fillRect(p.x + 5, p.y + 5, 22, 17);
           ctx.fillStyle = "#17282d";
@@ -2615,6 +3231,34 @@
           ctx.moveTo(p.x + 16, p.y + 7);
           ctx.lineTo(p.x + 16, p.y + 19);
           ctx.stroke();
+          if (windowData.barred || this.barTiles.has(`${tx},${ty}`)) {
+            ctx.strokeStyle = "#858d88";
+            ctx.lineWidth = 2;
+            for (let x = 9; x <= 23; x += 5) {
+              ctx.beginPath();
+              ctx.moveTo(p.x + x, p.y + 5);
+              ctx.lineTo(p.x + x, p.y + 22);
+              ctx.stroke();
+            }
+            ctx.beginPath();
+            ctx.moveTo(p.x + 5, p.y + 13);
+            ctx.lineTo(p.x + 27, p.y + 13);
+            ctx.stroke();
+          }
+        }
+        const signBuilding = this.signTiles.get(`${tx},${ty}`);
+        if (signBuilding) {
+          const sign = signBuilding.type === "hospital" ? "H" : signBuilding.type === "sheriff" ? "STAR" : signBuilding.type === "prison" ? "HC" : signBuilding.type === "grocery" ? "FOOD" : "";
+          if (sign) {
+            ctx.fillStyle = "rgba(13,17,15,.75)";
+            roundedRectPath(ctx, p.x + 3, p.y + 8, 26, 15, 3);
+            ctx.fill();
+            ctx.fillStyle = signBuilding.type === "hospital" ? "#d9e9df" : signBuilding.type === "grocery" ? "#e2c96f" : "#b9c9c8";
+            ctx.font = `900 ${sign.length > 2 ? 7 : 12}px system-ui, sans-serif`;
+            ctx.textAlign = "center";
+            ctx.textBaseline = "middle";
+            ctx.fillText(sign, p.x + 16, p.y + 15.5);
+          }
         }
       } else if (tile === TILE.WATER) {
         ctx.fillStyle = variation > 0.5 ? "#263e40" : "#223a3c";
@@ -2717,6 +3361,21 @@
             roundedRectPath(ctx, w / 2 - 2, 0, w * 0.68, h / 2 - 1, 2);
             ctx.fill();
           }
+        } else if (container.kind === "freezer") {
+          ctx.fillStyle = "#2b3332";
+          roundedRectPath(ctx, -w / 2 - 1, -h / 2 - 1, w + 2, h + 2, 3);
+          ctx.fill();
+          ctx.fillStyle = container.searched ? "#7f8984" : "#aeb8b1";
+          roundedRectPath(ctx, -w / 2, -h / 2, w, h, 2);
+          ctx.fill();
+          ctx.fillStyle = "#263c42";
+          ctx.fillRect(-w / 2 + 3, -h / 2 + 3, w - 6, h - 8);
+          ctx.fillStyle = "rgba(191,224,225,.26)";
+          ctx.fillRect(-w / 2 + 5, -h / 2 + 5, w - 10, 3);
+          ctx.strokeStyle = "#566560";
+          ctx.strokeRect(-w / 2 + 2.5, -h / 2 + 2.5, w - 5, h - 7);
+          ctx.fillStyle = "#d9c66b";
+          ctx.fillRect(w / 2 - 7, h / 2 - 4, 4, 2);
         } else if (container.kind === "crate") {
           ctx.fillStyle = "#3b2a1d";
           ctx.fillRect(-w / 2 - 1, -h / 2 - 1, w + 2, h + 2);
@@ -2746,12 +3405,44 @@
             ctx.fillStyle = color;
             ctx.fillRect(-w / 2 + 3 + index * 5, -h / 2 + 3 + index % 2 * 8, 3, 5);
           });
-        } else if (container.kind === "locker" || container.kind === "medical_cabinet") {
+        } else if (container.kind === "hospital_bed" || container.kind === "gurney") {
+          const gurney = container.kind === "gurney";
+          ctx.fillStyle = "#262d2b";
+          roundedRectPath(ctx, -w / 2 - 1, -h / 2, w + 2, h - 2, 4);
+          ctx.fill();
+          ctx.fillStyle = gurney ? "#aeb5ac" : "#d5d8ca";
+          roundedRectPath(ctx, -w / 2, -h / 2 - 2, w, h - 4, 4);
+          ctx.fill();
+          ctx.fillStyle = gurney ? "#697d78" : "#7c998d";
+          ctx.fillRect(-w / 2 + 2, -2, w - 4, 5);
+          ctx.fillStyle = "#e3e0ca";
+          roundedRectPath(ctx, -w / 2 + 2, -h / 2, 8, 7, 2);
+          ctx.fill();
+          ctx.strokeStyle = "#707975";
+          ctx.lineWidth = 2;
+          ctx.beginPath();
+          ctx.moveTo(-w / 2 + 2, h / 2 - 4);
+          ctx.lineTo(-w / 2 + 2, h / 2 + 3);
+          ctx.moveTo(w / 2 - 2, h / 2 - 4);
+          ctx.lineTo(w / 2 - 2, h / 2 + 3);
+          ctx.stroke();
+          if (gurney) {
+            ctx.fillStyle = "#1d2221";
+            ctx.beginPath();
+            ctx.arc(-w / 2 + 3, h / 2 + 3, 2, 0, Math.PI * 2);
+            ctx.arc(w / 2 - 3, h / 2 + 3, 2, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else if (["locker", "medical_cabinet", "evidence_cabinet", "gun_locker", "cell_locker", "tool_cabinet"].includes(container.kind)) {
           const medical = container.kind === "medical_cabinet";
+          const gun = container.kind === "gun_locker";
+          const evidence = container.kind === "evidence_cabinet";
+          const prison = container.kind === "cell_locker";
+          const tools = container.kind === "tool_cabinet";
           ctx.fillStyle = "#252c2b";
           roundedRectPath(ctx, -w / 2 - 1, -h / 2 - 1, w + 2, h + 2, 2);
           ctx.fill();
-          ctx.fillStyle = medical ? "#aeb7ad" : "#58645f";
+          ctx.fillStyle = medical ? "#aeb7ad" : gun ? "#3d4b49" : evidence ? "#6a7672" : prison ? "#4f5654" : tools ? "#6b6354" : "#58645f";
           roundedRectPath(ctx, -w / 2, -h / 2, w, h, 2);
           ctx.fill();
           ctx.strokeStyle = medical ? "#68746c" : "#303a36";
@@ -2764,6 +3455,26 @@
             ctx.fillStyle = "#9d4945";
             ctx.fillRect(-2, -6, 4, 12);
             ctx.fillRect(-6, -2, 12, 4);
+          } else if (gun) {
+            ctx.fillStyle = "#151b1a";
+            ctx.fillRect(-8, -6, 16, 10);
+            ctx.strokeStyle = "#88938e";
+            ctx.lineWidth = 2;
+            ctx.beginPath();
+            ctx.moveTo(-6, 1);
+            ctx.lineTo(6, -4);
+            ctx.moveTo(-4, 4);
+            ctx.lineTo(7, 0);
+            ctx.stroke();
+            ctx.fillStyle = "#c2a55f";
+            ctx.fillRect(-2, 5, 4, 3);
+          } else if (evidence) {
+            ctx.fillStyle = "#d4cfb8";
+            ctx.fillRect(-8, -6, 16, 7);
+            ctx.fillStyle = "#3d4542";
+            ctx.fillRect(-6, -4, 12, 1);
+            ctx.fillStyle = "#b89e59";
+            ctx.fillRect(-2, 4, 4, 3);
           } else {
             ctx.fillStyle = "#252d2a";
             for (let x = -7; x <= 4; x += 11) for (let y = -5; y <= -1; y += 2) ctx.fillRect(x, y, 5, 1);
@@ -2786,19 +3497,45 @@
           ctx.arc(-w / 2 + 4, h / 2 - 1, 2, 0, Math.PI * 2);
           ctx.arc(w / 2 - 4, h / 2 - 1, 2, 0, Math.PI * 2);
           ctx.fill();
-        } else if (container.kind === "desk" || container.kind === "counter") {
-          const desk = container.kind === "desk";
+        } else if (["desk", "counter", "checkout", "reception", "guard_desk", "workbench", "canteen_table", "table"].includes(container.kind)) {
+          const desk = ["desk", "guard_desk", "reception"].includes(container.kind);
+          const checkout = container.kind === "checkout";
+          const workbench = container.kind === "workbench";
+          const canteen = container.kind === "canteen_table" || container.kind === "table";
           ctx.fillStyle = "#2d251e";
           roundedRectPath(ctx, -w / 2 - 1, -h / 2 - 1, w + 2, h + 2, 2);
           ctx.fill();
-          ctx.fillStyle = desk ? "#65513d" : "#695743";
+          ctx.fillStyle = workbench ? "#70563d" : canteen ? "#6b6555" : checkout ? "#595f50" : desk ? "#65513d" : "#695743";
           roundedRectPath(ctx, -w / 2, -h / 2, w, h, 2);
           ctx.fill();
           ctx.fillStyle = "#8a7455";
           ctx.fillRect(-w / 2 + 1, -h / 2 + 1, w - 2, 4);
           ctx.fillStyle = "rgba(25,20,16,.48)";
           ctx.fillRect(-w / 2 + 3, 2, w - 6, 1);
-          if (desk) {
+          if (checkout) {
+            ctx.fillStyle = "#252c29";
+            roundedRectPath(ctx, 2, -8, 9, 8, 2);
+            ctx.fill();
+            ctx.fillStyle = "#71877e";
+            ctx.fillRect(4, -6, 5, 3);
+            ctx.fillStyle = "#d3b65d";
+            ctx.fillRect(-9, 2, 11, 2);
+          } else if (workbench) {
+            ctx.fillStyle = "#b3a36b";
+            ctx.fillRect(-9, -5, 11, 2);
+            ctx.fillStyle = "#3c4440";
+            ctx.fillRect(4, -6, 6, 6);
+            ctx.strokeStyle = "#262b29";
+            ctx.beginPath();
+            ctx.moveTo(6, -6);
+            ctx.lineTo(10, -1);
+            ctx.stroke();
+          } else if (canteen) {
+            ctx.fillStyle = "#323733";
+            ctx.fillRect(-w / 2 + 3, -2, w - 6, 4);
+            ctx.fillStyle = "#91855e";
+            ctx.fillRect(-2, -h / 2 + 2, 4, h - 4);
+          } else if (desk) {
             ctx.fillStyle = "#d1c9ad";
             ctx.save();
             ctx.rotate(-0.12);
@@ -3137,6 +3874,7 @@
         const attackReach = attackRemaining > 0 ? Math.sin(attackProgress * Math.PI) : 0;
         const fall = zombie.dead ? 1 - clamp(zombie.deathAnim ?? 0, 0, 1) : 0;
         const fallSide = zombie.deathSide ?? 1;
+        const idleTwitch = Math.sin(phase * 0.43 + (zombie.variant ?? 0) * 1.7) * (1 - move);
         ctx.save();
         ctx.translate(p.x, p.y);
         if (zombie.dead) {
@@ -3168,8 +3906,8 @@
         ctx.fill();
         const bob = Math.abs(Math.cos(phase)) * move * 1.2;
         const hunch = chasing ? 1.5 : 0;
-        const bodyX = Math.sin(phase * 0.5) * move * 1.2 + fx * hunch;
-        const bodyY = -18 + bob + hunch;
+        const bodyX = Math.sin(phase * 0.5) * move * 1.2 + fx * hunch + idleTwitch * 0.8;
+        const bodyY = -18 + bob + hunch + Math.abs(idleTwitch) * 0.45;
         const shirt = flashing ? "#f1e5d9" : look.shirt;
         const shirtDark = flashing ? "#d9cec4" : look.shirtDark;
         const shoulderY = bodyY - 1;
@@ -3221,8 +3959,8 @@
         ctx.arc(leftHand.x, leftHand.y, 2.8, 0, Math.PI * 2);
         ctx.arc(rightHand.x, rightHand.y, 2.8, 0, Math.PI * 2);
         ctx.fill();
-        const headX = bodyX + fx * 2.3;
-        const headY = bodyY - 12 + fy * 1.2;
+        const headX = bodyX + fx * 2.3 + idleTwitch * 0.65;
+        const headY = bodyY - 12 + fy * 1.2 - idleTwitch * 0.35;
         ctx.fillStyle = "#252922";
         ctx.beginPath();
         ctx.ellipse(headX, headY, 7.2, 8, 0, 0, Math.PI * 2);
@@ -3246,7 +3984,8 @@
             ctx.fillRect(headX + 2, eyeY, 2, 2);
           }
           ctx.fillStyle = look.accent;
-          ctx.fillRect(headX - 2 + side, eyeY + 4, 4, 1.5);
+          const jawDrop = chasing ? 1 + Math.abs(Math.sin(phase * 0.72)) * 1.5 : 0.5;
+          ctx.fillRect(headX - 2 + side, eyeY + 4, 4, jawDrop);
         }
         if (chasing && !zombie.dead) {
           const hp = clamp(zombie.health / zombie.maxHealth, 0, 1);
@@ -3276,10 +4015,11 @@
       const hurtFlash = hurt > 0 && Math.floor(hurt * 22) % 2 === 0;
       const weapon = ITEMS[player.equipped] ?? FISTS;
       const ranged = weapon.mode === "ranged";
-      const twoHandedMelee = ["bat", "axe", "crowbar", "spear", "sledgehammer"].includes(player.equipped);
+      const twoHandedMelee = ["bat", "axe", "katana", "crowbar", "spear", "sledgehammer"].includes(player.equipped);
       const compress = crouching ? 5 : 0;
       const step = Math.sin(phase) * move * (sprinting ? 5.8 : crouching ? 2.7 : 4.1);
       const bob = Math.abs(Math.cos(phase)) * move * (sprinting ? 1.8 : 1.1);
+      const breathing = Math.sin(phase * 0.58) * (1 - move) * (crouching ? 0.35 : 0.8);
       ctx.save();
       ctx.translate(p.x + Math.sin(hurt * Math.PI) * -side * 4, p.y + hurt * 2);
       ctx.fillStyle = "rgba(2,5,3,.4)";
@@ -3302,7 +4042,7 @@
       ctx.fill();
       const lean = sprinting ? fx * 2.3 : 0;
       const bodyX = lean;
-      const bodyY = -19 + compress + bob;
+      const bodyY = -19 + compress + bob + breathing;
       const skin = hurtFlash ? "#fff1e4" : "#bf9677";
       const jacket = hurtFlash ? "#f7e9dc" : crouching ? "#546b58" : "#607b64";
       const jacketDark = hurtFlash ? "#d9ccc1" : "#3e5445";
@@ -3328,10 +4068,22 @@
         rightHand = { x: bodyX + 2 + fx * (reach + 1), y: bodyY + 1 + fy * (reach + 1) * 0.62 };
       } else if (attackRemaining > 0) {
         const baseAngle = Math.atan2(fy, fx);
-        const sweep = baseAngle - 1.24 + attackProgress * 2.48;
-        weaponDir = { x: Math.cos(sweep), y: Math.sin(sweep) };
-        rightHand = { x: bodyX + weaponDir.x * 13, y: bodyY + weaponDir.y * 9 };
-        if (twoHandedMelee) leftHand = { x: bodyX + weaponDir.x * 7 - side * 2, y: bodyY + weaponDir.y * 5 + 1 };
+        const thrusting = ["knife", "spear"].includes(player.equipped) || weapon === FISTS;
+        const overhead = ["axe", "hammer", "sledgehammer"].includes(player.equipped);
+        if (thrusting) {
+          const thrust = Math.sin(attackProgress * Math.PI);
+          weaponDir = { x: fx, y: fy };
+          rightHand = { x: bodyX + fx * (10 + thrust * 8), y: bodyY + fy * (7 + thrust * 6) };
+          if (player.equipped === "spear") leftHand = { x: bodyX + fx * (5 + thrust * 5) - side * 2, y: bodyY + fy * (4 + thrust * 4) + 1 };
+        } else {
+          const arcWidth = overhead ? 2.05 : player.equipped === "katana" ? 2.9 : 2.48;
+          const start = overhead ? -1.72 : player.equipped === "katana" ? -1.45 : -1.24;
+          const sweep = baseAngle + start + attackProgress * arcWidth;
+          weaponDir = { x: Math.cos(sweep), y: Math.sin(sweep) };
+          const reach = overhead ? 15 : 13;
+          rightHand = { x: bodyX + weaponDir.x * reach, y: bodyY + weaponDir.y * (overhead ? 12 : 9) };
+          if (twoHandedMelee) leftHand = { x: bodyX + weaponDir.x * 7 - side * 2, y: bodyY + weaponDir.y * 5 + 1 };
+        }
       } else if (weapon !== FISTS) {
         rightHand = { x: bodyX + side * 7 + fx * 6, y: bodyY + 3 + fy * 5 };
       }
@@ -3412,11 +4164,24 @@
           ctx.beginPath();
           ctx.arc(p.x, p.y, 12 * alpha, 0, Math.PI * 2);
           ctx.fill();
+        } else if (effect.type === "casing") {
+          ctx.save();
+          ctx.translate(p.x, p.y);
+          ctx.rotate((1 - alpha) * 9);
+          ctx.fillStyle = effect.shell ? `rgba(177,62,42,${alpha})` : `rgba(206,172,79,${alpha})`;
+          ctx.fillRect(-2, -1, effect.shell ? 5 : 4, 2);
+          ctx.restore();
         } else if (effect.type === "swing") {
           ctx.strokeStyle = `rgba(225,225,205,${alpha * 0.52})`;
-          ctx.lineWidth = 3;
+          ctx.lineWidth = effect.style === "overhead" ? 4 : 3;
           ctx.beginPath();
-          ctx.arc(p.x, p.y, effect.range, effect.angle - 0.65, effect.angle + 0.65);
+          if (effect.style === "thrust") {
+            ctx.moveTo(p.x + Math.cos(effect.angle) * 18, p.y + Math.sin(effect.angle) * 18);
+            ctx.lineTo(p.x + Math.cos(effect.angle) * effect.range, p.y + Math.sin(effect.angle) * effect.range);
+          } else {
+            const spread = effect.style === "overhead" ? 0.38 : 0.72;
+            ctx.arc(p.x, p.y, effect.range, effect.angle - spread, effect.angle + spread);
+          }
           ctx.stroke();
         }
       }
@@ -3516,5 +4281,5 @@
       ctx.strokeRect(0.5, 0.5, size - 1, size - 1);
     }
   };
-  new HollowCountyGame();
+  window.__walkers = new HollowCountyGame();
 })();
