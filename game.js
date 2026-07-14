@@ -1147,6 +1147,175 @@
     const variants = interiors[type] || interiors.house;
     return variants[interiorVariant % variants.length];
   }
+  var INTERIOR_DECOR_PROFILES = Object.freeze({
+    house: [
+      ["rug", "couch", "coffee_table", "armchair", "bed", "nightstand", "chair", "bookshelf", "lamp", "papers", "trash", "dead_plant", "suitcase", "stain", "mold"],
+      ["rug", "couch", "armchair", "bed", "mattress", "nightstand", "chair", "lamp", "books", "papers", "trash", "picture_frame", "stain"],
+      ["rug", "couch", "coffee_table", "chair", "bookshelf", "lamp", "bed", "nightstand", "dead_plant", "papers", "suitcase", "trash", "mold"],
+      ["rug", "armchair", "coffee_table", "couch", "bed", "nightstand", "chair", "bookshelf", "lamp", "papers", "trash", "picture_frame", "stain"],
+      ["rug", "couch", "coffee_table", "bed", "mattress", "nightstand", "chair", "bookshelf", "lamp", "books", "papers", "dead_plant", "suitcase", "trash"]
+    ],
+    grocery: [
+      ["fallen_shelf", "shopping_cart", "boxes", "cardboard", "spill", "glass", "trash", "sign", "papers", "pallet"],
+      ["shopping_cart", "fallen_shelf", "boxes", "spill", "trash", "cardboard", "sign", "glass", "pallet"],
+      ["fallen_shelf", "boxes", "cardboard", "spill", "shopping_cart", "trash", "papers", "glass", "sign"],
+      ["shopping_cart", "boxes", "pallet", "trash", "spill", "fallen_shelf", "cardboard", "sign", "papers"],
+      ["fallen_shelf", "shopping_cart", "boxes", "boxes", "pallet", "glass", "spill", "trash", "sign", "cardboard"]
+    ],
+    hospital: [
+      ["privacy_screen", "iv_stand", "waiting_chair", "wheelchair", "linen", "papers", "blood_smear", "mop_bucket", "stain", "trash"],
+      ["privacy_screen", "iv_stand", "waiting_chair", "linen", "wheelchair", "papers", "stain", "trash"],
+      ["wheelchair", "iv_stand", "privacy_screen", "blood_smear", "linen", "papers", "mop_bucket", "trash"],
+      ["waiting_chair", "privacy_screen", "iv_stand", "linen", "papers", "stain", "wheelchair", "trash"],
+      ["iv_stand", "privacy_screen", "wheelchair", "waiting_chair", "linen", "blood_smear", "papers", "mop_bucket", "trash"]
+    ],
+    sheriff: [
+      ["waiting_bench", "office_chair", "files", "radio", "evidence_box", "papers", "coffee_cup", "trash", "fallen_flag"],
+      ["office_chair", "waiting_bench", "files", "radio", "boxes", "papers", "coffee_cup", "trash"],
+      ["evidence_box", "boxes", "office_chair", "files", "radio", "papers", "waiting_bench", "trash"],
+      ["office_chair", "waiting_bench", "radio", "files", "papers", "coffee_cup", "boxes", "trash"],
+      ["waiting_bench", "office_chair", "evidence_box", "files", "radio", "papers", "fallen_flag", "trash"]
+    ],
+    prison: [
+      ["bunk", "toilet", "bench", "mattress", "blanket", "tray", "graffiti", "trash", "stain"],
+      ["bunk", "bench", "toilet", "blanket", "mattress", "tray", "graffiti", "trash"],
+      ["bench", "mattress", "toilet", "bunk", "blanket", "tray", "trash", "stain"],
+      ["bunk", "bunk", "toilet", "bench", "mattress", "graffiti", "tray", "trash"],
+      ["mattress", "blanket", "bench", "toilet", "bunk", "tray", "graffiti", "trash"]
+    ],
+    warehouse: [
+      ["pallet", "barrel", "tire", "tarp", "boxes", "hand_truck", "cable", "oil_stain", "trash"],
+      ["pallet", "boxes", "barrel", "hand_truck", "tire", "tarp", "oil_stain", "trash"],
+      ["hand_truck", "pallet", "barrel", "boxes", "cable", "tire", "oil_stain", "trash"],
+      ["pallet", "pallet", "boxes", "barrel", "tarp", "hand_truck", "cable", "trash"],
+      ["barrel", "tire", "pallet", "boxes", "tarp", "cable", "oil_stain", "hand_truck", "trash"]
+    ]
+  });
+
+  var INTERIOR_DECOR_REQUIRED = Object.freeze({
+    house: ["rug", "couch", "coffee_table", "bed", "lamp", "papers"],
+    grocery: ["fallen_shelf", "shopping_cart", "boxes", "spill"],
+    hospital: ["privacy_screen", "iv_stand", "waiting_chair", "linen"],
+    sheriff: ["waiting_bench", "office_chair", "files", "radio"],
+    prison: ["bunk", "toilet", "bench", "blanket"],
+    warehouse: ["pallet", "barrel", "boxes", "oil_stain"]
+  });
+
+  var INTERIOR_DECOR_EDGE = new Set([
+    "couch", "armchair", "bed", "nightstand", "bookshelf", "lamp",
+    "fallen_shelf", "sign", "privacy_screen", "waiting_chair",
+    "waiting_bench", "office_chair", "radio", "fallen_flag",
+    "bunk", "toilet", "bench", "graffiti", "barrel", "tire",
+    "hand_truck", "picture_frame"
+  ]);
+
+  var INTERIOR_DECOR_LARGE = new Set([
+    "couch", "bed", "bunk", "mattress", "fallen_shelf",
+    "privacy_screen", "waiting_bench", "bench", "shopping_cart",
+    "wheelchair", "pallet", "hand_truck", "tarp"
+  ]);
+
+  var INTERIOR_DECOR_FLAT = new Set([
+    "rug", "blanket", "linen", "tarp", "papers", "files", "books",
+    "trash", "glass", "cardboard", "spill", "blood_smear",
+    "stain", "mold", "oil_stain", "graffiti", "fallen_flag", "cable"
+  ]);
+
+  function decorateBuildingInterior(world, building) {
+    const rng = new RNG(`${world.seed}:${building.id}:INTERIOR-DECOR`);
+    const tileSize = world.tileSize;
+    const profileSet = INTERIOR_DECOR_PROFILES[building.type] || INTERIOR_DECOR_PROFILES.house;
+    const profile = profileSet[(building.interiorVariant || 0) % profileSet.length];
+    const required = INTERIOR_DECOR_REQUIRED[building.type] || INTERIOR_DECOR_REQUIRED.house;
+    const doorKeys = new Set((building.doors || []).map((door) => `${door.x},${door.y}`));
+    const lootCells = new Set(
+      world.containers
+        .filter((container) => container.buildingId === building.id)
+        .map((container) => `${Math.floor(container.x / tileSize)},${Math.floor(container.y / tileSize)}`)
+    );
+
+    const floorCells = building.cells.filter((cell) => {
+      if (getTile(world, cell.x, cell.y) !== TILE.FLOOR) return false;
+      if (doorKeys.has(`${cell.x},${cell.y}`)) return false;
+      if (lootCells.has(`${cell.x},${cell.y}`)) return false;
+      if (building.stairTile && cell.x === building.stairTile.x && cell.y === building.stairTile.y) return false;
+      return true;
+    });
+
+    const edgeCells = floorCells.filter((cell) =>
+      [[0, -1], [1, 0], [0, 1], [-1, 0]].some(
+        ([dx, dy]) => getTile(world, cell.x + dx, cell.y + dy) === TILE.WALL
+      )
+    );
+    const openCells = floorCells.filter((cell) => !edgeCells.includes(cell));
+
+    const ranges = {
+      house: [9, 15],
+      grocery: [14, 24],
+      hospital: [16, 28],
+      sheriff: [13, 22],
+      prison: [16, 26],
+      warehouse: [15, 27]
+    };
+    const [minimum, maximum] = ranges[building.type] || [9, 15];
+    const target = Math.min(floorCells.length, rng.int(minimum, maximum));
+    const kinds = required.slice();
+
+    while (kinds.length < target) kinds.push(rng.pick(profile));
+
+    const placed = [];
+    building.decor = [];
+
+    for (const kind of kinds) {
+      const preferEdge = INTERIOR_DECOR_EDGE.has(kind);
+      const pools = preferEdge
+        ? [rng.shuffle(edgeCells.slice()), rng.shuffle(floorCells.slice())]
+        : [rng.shuffle(openCells.slice()), rng.shuffle(floorCells.slice())];
+
+      const gap = INTERIOR_DECOR_LARGE.has(kind) ? 1.55 : INTERIOR_DECOR_FLAT.has(kind) ? 0.72 : 1.05;
+      const doorDistance = INTERIOR_DECOR_LARGE.has(kind) ? 2 : 1;
+      let picked = null;
+
+      for (const pool of pools) {
+        picked = pool.find((cell) => {
+          if (!building.doors.every((door) => Math.abs(door.x - cell.x) + Math.abs(door.y - cell.y) >= doorDistance)) return false;
+          return placed.every((other) => Math.hypot(other.x - cell.x, other.y - cell.y) >= Math.max(gap, other.gap));
+        });
+        if (picked) break;
+      }
+
+      if (!picked) continue;
+
+      const wall = [[0, -1, "north"], [1, 0, "east"], [0, 1, "south"], [-1, 0, "west"]]
+        .find(([dx, dy]) => getTile(world, picked.x + dx, picked.y + dy) === TILE.WALL);
+      const side = wall?.[2] || rng.pick(["north", "east", "south", "west"]);
+      const wallOffset = preferEdge && wall
+        ? {
+            x: side === "west" ? -5 : side === "east" ? 5 : 0,
+            y: side === "north" ? -5 : side === "south" ? 5 : 0
+          }
+        : { x: 0, y: 0 };
+      const loose = INTERIOR_DECOR_FLAT.has(kind) || ["shopping_cart", "wheelchair", "office_chair", "hand_truck"].includes(kind);
+      const alignedRotation = side === "east" || side === "west" ? Math.PI / 2 : 0;
+
+      building.decor.push({
+        id: `${building.id}-decor-${building.decor.length}`,
+        buildingId: building.id,
+        chunkKey: building.chunkKey,
+        kind,
+        x: (picked.x + 0.5) * tileSize + wallOffset.x + (rng.float() - 0.5) * (loose ? 10 : 4),
+        y: (picked.y + 0.5) * tileSize + wallOffset.y + (rng.float() - 0.5) * (loose ? 10 : 4),
+        rotation: loose ? (rng.float() - 0.5) * Math.PI * 0.9 : alignedRotation + (rng.float() - 0.5) * 0.12,
+        scale: 0.88 + rng.float() * 0.22,
+        variant: rng.int(0, 3),
+        layer: INTERIOR_DECOR_FLAT.has(kind) ? -1 : 0,
+        tone: rng.float()
+      });
+      placed.push({ x: picked.x, y: picked.y, gap });
+    }
+
+    building.decor.sort((a, b) => a.layer - b.layer);
+  }
   function addBuilding(world, rng, rect, type) {
     const id = world.activeChunkKey ? `${world.activeChunkKey}-b${world.activeChunkBuildingIndex++}` : `b${world.buildings.length}`;
     const variants = BUILDING_VARIANTS[type] || ["standard"];
@@ -1313,9 +1482,10 @@
         searched: false,
         loot: createLoot(rng, BUILDING_TYPES[type].loot, 1, ["hospital", "sheriff", "prison"].includes(type) ? 5 : 4)
       });
-    }
-    delete building.cellSet;
-    world.buildings.push(building);
+  }
+decorateBuildingInterior(world, building);
+delete building.cellSet;
+world.buildings.push(building);
     return building;
   }
   function generateBlocks(world, rng, roadX, roadY) {
