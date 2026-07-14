@@ -1225,16 +1225,6 @@
   rng,
   variant
 );
-
-    const interiorVariant = designBuildingInterior(
-      world,
-      building,
-      rect,
-      type,
-      rng,
-      variant
-    );
-
     if (floorCount === 2) {
       const exteriorDoorKeys = new Set(
         building.doors
