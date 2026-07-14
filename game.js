@@ -1147,20 +1147,6 @@
     const variants = interiors[type] || interiors.house;
     return variants[interiorVariant % variants.length];
   }
-  var INTERIOR_DECOR_PROFILES = Object.freeze({
-
-Delete everything starting at that line through the end of:
-
-  function decorateBuildingInterior(world, building) {
-    ...
-  }
-
-Stop deleting immediately before:
-
-  function addBuilding(world, rng, rect, type) {
-
-Paste this complete replacement in the deleted space:
-
 var INTERIOR_FLAT_PROPS = new Set([
   "rug", "towel", "paper_scatter", "spill", "oil_stain", "blanket", "glass_shards"
 ]);
