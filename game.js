@@ -1148,79 +1148,918 @@
     return variants[interiorVariant % variants.length];
   }
   var INTERIOR_DECOR_PROFILES = Object.freeze({
-    house: [
-      ["rug", "couch", "coffee_table", "armchair", "bed", "nightstand", "chair", "bookshelf", "lamp", "papers", "trash", "dead_plant", "suitcase", "stain", "mold"],
-      ["rug", "couch", "armchair", "bed", "mattress", "nightstand", "chair", "lamp", "books", "papers", "trash", "picture_frame", "stain"],
-      ["rug", "couch", "coffee_table", "chair", "bookshelf", "lamp", "bed", "nightstand", "dead_plant", "papers", "suitcase", "trash", "mold"],
-      ["rug", "armchair", "coffee_table", "couch", "bed", "nightstand", "chair", "bookshelf", "lamp", "papers", "trash", "picture_frame", "stain"],
-      ["rug", "couch", "coffee_table", "bed", "mattress", "nightstand", "chair", "bookshelf", "lamp", "books", "papers", "dead_plant", "suitcase", "trash"]
-    ],
-    grocery: [
-      ["fallen_shelf", "shopping_cart", "boxes", "cardboard", "spill", "glass", "trash", "sign", "papers", "pallet"],
-      ["shopping_cart", "fallen_shelf", "boxes", "spill", "trash", "cardboard", "sign", "glass", "pallet"],
-      ["fallen_shelf", "boxes", "cardboard", "spill", "shopping_cart", "trash", "papers", "glass", "sign"],
-      ["shopping_cart", "boxes", "pallet", "trash", "spill", "fallen_shelf", "cardboard", "sign", "papers"],
-      ["fallen_shelf", "shopping_cart", "boxes", "boxes", "pallet", "glass", "spill", "trash", "sign", "cardboard"]
-    ],
-    hospital: [
-      ["privacy_screen", "iv_stand", "waiting_chair", "wheelchair", "linen", "papers", "blood_smear", "mop_bucket", "stain", "trash"],
-      ["privacy_screen", "iv_stand", "waiting_chair", "linen", "wheelchair", "papers", "stain", "trash"],
-      ["wheelchair", "iv_stand", "privacy_screen", "blood_smear", "linen", "papers", "mop_bucket", "trash"],
-      ["waiting_chair", "privacy_screen", "iv_stand", "linen", "papers", "stain", "wheelchair", "trash"],
-      ["iv_stand", "privacy_screen", "wheelchair", "waiting_chair", "linen", "blood_smear", "papers", "mop_bucket", "trash"]
-    ],
-    sheriff: [
-      ["waiting_bench", "office_chair", "files", "radio", "evidence_box", "papers", "coffee_cup", "trash", "fallen_flag"],
-      ["office_chair", "waiting_bench", "files", "radio", "boxes", "papers", "coffee_cup", "trash"],
-      ["evidence_box", "boxes", "office_chair", "files", "radio", "papers", "waiting_bench", "trash"],
-      ["office_chair", "waiting_bench", "radio", "files", "papers", "coffee_cup", "boxes", "trash"],
-      ["waiting_bench", "office_chair", "evidence_box", "files", "radio", "papers", "fallen_flag", "trash"]
-    ],
-    prison: [
-      ["bunk", "toilet", "bench", "mattress", "blanket", "tray", "graffiti", "trash", "stain"],
-      ["bunk", "bench", "toilet", "blanket", "mattress", "tray", "graffiti", "trash"],
-      ["bench", "mattress", "toilet", "bunk", "blanket", "tray", "trash", "stain"],
-      ["bunk", "bunk", "toilet", "bench", "mattress", "graffiti", "tray", "trash"],
-      ["mattress", "blanket", "bench", "toilet", "bunk", "tray", "graffiti", "trash"]
-    ],
-    warehouse: [
-      ["pallet", "barrel", "tire", "tarp", "boxes", "hand_truck", "cable", "oil_stain", "trash"],
-      ["pallet", "boxes", "barrel", "hand_truck", "tire", "tarp", "oil_stain", "trash"],
-      ["hand_truck", "pallet", "barrel", "boxes", "cable", "tire", "oil_stain", "trash"],
-      ["pallet", "pallet", "boxes", "barrel", "tarp", "hand_truck", "cable", "trash"],
-      ["barrel", "tire", "pallet", "boxes", "tarp", "cable", "oil_stain", "hand_truck", "trash"]
-    ]
+
+Delete everything starting at that line through the end of:
+
+  function decorateBuildingInterior(world, building) {
+    ...
+  }
+
+Stop deleting immediately before:
+
+  function addBuilding(world, rng, rect, type) {
+
+Paste this complete replacement in the deleted space:
+
+var INTERIOR_FLAT_PROPS = new Set([
+  "rug", "towel", "paper_scatter", "spill", "oil_stain", "blanket", "glass_shards"
+]);
+
+var INTERIOR_LARGE_PROPS = new Set([
+  "sofa", "bed", "bathtub", "fallen_shelf", "privacy_screen",
+  "waiting_bench", "bunk", "prison_bench", "pallet", "work_table"
+]);
+
+var BUILDING_ROOM_THEMES = Object.freeze({
+  house: [
+    ["living", "kitchen", "bedroom", "bedroom", "bathroom", "closet"],
+    ["living", "bedroom", "kitchen", "bedroom", "closet", "bathroom"],
+    ["living", "kitchen", "bedroom", "bathroom", "bedroom", "closet"],
+    ["living", "bedroom", "bedroom", "kitchen", "bathroom", "closet"],
+    ["living", "kitchen", "bedroom", "closet", "bedroom", "bathroom"]
+  ],
+  grocery: [
+    ["sales_floor", "stockroom", "office", "breakroom"],
+    ["sales_floor", "office", "stockroom", "breakroom"],
+    ["sales_floor", "stockroom", "breakroom", "office"],
+    ["sales_floor", "breakroom", "stockroom", "office"],
+    ["sales_floor", "stockroom", "office", "breakroom"]
+  ],
+  hospital: [
+    ["ward", "treatment", "waiting", "nurse_station", "supply"],
+    ["ward", "waiting", "treatment", "supply", "nurse_station"],
+    ["treatment", "ward", "waiting", "nurse_station", "supply"],
+    ["waiting", "ward", "treatment", "nurse_station", "supply"],
+    ["ward", "treatment", "nurse_station", "waiting", "supply"]
+  ],
+  sheriff: [
+    ["squad", "lobby", "office", "evidence", "armory", "holding"],
+    ["lobby", "squad", "office", "evidence", "holding", "armory"],
+    ["squad", "evidence", "office", "lobby", "armory", "holding"],
+    ["squad", "office", "lobby", "holding", "evidence", "armory"],
+    ["lobby", "office", "squad", "evidence", "armory", "holding"]
+  ],
+  prison: [
+    ["common", "cell", "cell", "guard", "cafeteria", "infirmary"],
+    ["common", "guard", "cell", "cell", "cafeteria", "infirmary"],
+    ["intake", "cell", "cell", "guard", "common", "infirmary"],
+    ["guard", "cell", "cell", "common", "cafeteria", "infirmary"],
+    ["common", "cafeteria", "cell", "cell", "guard", "infirmary"]
+  ],
+  warehouse: [
+    ["warehouse_storage", "workshop", "loading", "office"],
+    ["loading", "warehouse_storage", "office", "workshop"],
+    ["workshop", "warehouse_storage", "loading", "office"],
+    ["warehouse_storage", "loading", "workshop", "office"],
+    ["warehouse_storage", "office", "workshop", "loading"]
+  ]
+});
+
+var ROOM_CONTAINER_LAYOUTS = Object.freeze({
+  living: [
+    { kind: "table", wall: "south", t: 0.5 }
+  ],
+  kitchen: [
+    { kind: "fridge", wall: "north", t: 0.14 },
+    { kind: "cupboard", wall: "north", t: 0.48 },
+    { kind: "cupboard", wall: "east", t: 0.58 }
+  ],
+  bedroom: [
+    { kind: "dresser", wall: "east", t: 0.5 }
+  ],
+  bathroom: [],
+  closet: [
+    { kind: "cupboard", wall: "north", t: 0.5 }
+  ],
+  warehouse_storage: [
+    { kind: "crate", wall: "north", t: 0.2 },
+    { kind: "crate", wall: "north", t: 0.5 },
+    { kind: "crate", wall: "north", t: 0.8 },
+    { kind: "tool_cabinet", wall: "east", t: 0.55 }
+  ],
+  sales_floor: [
+    { kind: "checkout", wall: "south", t: 0.18 },
+    { kind: "shelf", wall: "north", t: 0.18 },
+    { kind: "shelf", wall: "north", t: 0.5 },
+    { kind: "shelf", wall: "north", t: 0.82 }
+  ],
+  stockroom: [
+    { kind: "shelf", wall: "north", t: 0.3 },
+    { kind: "freezer", wall: "east", t: 0.45 },
+    { kind: "counter", wall: "south", t: 0.55 }
+  ],
+  breakroom: [
+    { kind: "table", u: 0.5, v: 0.52 },
+    { kind: "counter", wall: "north", t: 0.5 }
+  ],
+  office: [
+    { kind: "desk", wall: "north", t: 0.5 },
+    { kind: "locker", wall: "east", t: 0.55 }
+  ],
+  ward: [
+    { kind: "hospital_bed", wall: "north", t: 0.24 },
+    { kind: "hospital_bed", wall: "north", t: 0.72 },
+    { kind: "medical_cabinet", wall: "east", t: 0.45 }
+  ],
+  treatment: [
+    { kind: "gurney", u: 0.5, v: 0.52 },
+    { kind: "medical_cabinet", wall: "north", t: 0.28 },
+    { kind: "supply_cart", wall: "east", t: 0.7 }
+  ],
+  waiting: [
+    { kind: "reception", wall: "north", t: 0.5 }
+  ],
+  nurse_station: [
+    { kind: "reception", wall: "south", t: 0.5 },
+    { kind: "medical_cabinet", wall: "east", t: 0.5 }
+  ],
+  supply: [
+    { kind: "medical_cabinet", wall: "north", t: 0.28 },
+    { kind: "medical_cabinet", wall: "north", t: 0.7 },
+    { kind: "supply_cart", wall: "east", t: 0.5 }
+  ],
+  squad: [
+    { kind: "desk", wall: "north", t: 0.28 },
+    { kind: "desk", wall: "north", t: 0.72 },
+    { kind: "locker", wall: "east", t: 0.55 }
+  ],
+  lobby: [
+    { kind: "desk", wall: "north", t: 0.5 }
+  ],
+  evidence: [
+    { kind: "evidence_cabinet", wall: "north", t: 0.3 },
+    { kind: "evidence_cabinet", wall: "north", t: 0.72 }
+  ],
+  armory: [
+    { kind: "gun_locker", wall: "north", t: 0.32 },
+    { kind: "gun_locker", wall: "north", t: 0.7 }
+  ],
+  holding: [
+    { kind: "locker", wall: "north", t: 0.5 }
+  ],
+  common: [
+    { kind: "canteen_table", u: 0.38, v: 0.5 },
+    { kind: "canteen_table", u: 0.7, v: 0.5 },
+    { kind: "cell_locker", wall: "east", t: 0.5 }
+  ],
+  cell: [
+    { kind: "cell_locker", wall: "north", t: 0.5 }
+  ],
+  guard: [
+    { kind: "guard_desk", wall: "north", t: 0.5 },
+    { kind: "gun_locker", wall: "east", t: 0.5 }
+  ],
+  cafeteria: [
+    { kind: "canteen_table", u: 0.35, v: 0.5 },
+    { kind: "canteen_table", u: 0.7, v: 0.5 }
+  ],
+  infirmary: [
+    { kind: "hospital_bed", wall: "north", t: 0.35 },
+    { kind: "medical_cabinet", wall: "east", t: 0.55 }
+  ],
+  intake: [
+    { kind: "guard_desk", wall: "north", t: 0.5 },
+    { kind: "cell_locker", wall: "east", t: 0.5 }
+  ],
+  workshop: [
+    { kind: "workbench", wall: "north", t: 0.34 },
+    { kind: "tool_cabinet", wall: "east", t: 0.48 },
+    { kind: "crate", wall: "south", t: 0.72 }
+  ],
+  loading: [
+    { kind: "crate", wall: "north", t: 0.22 },
+    { kind: "crate", wall: "north", t: 0.52 },
+    { kind: "crate", wall: "north", t: 0.82 }
+  ]
+});
+
+var ROOM_DECOR_LAYOUTS = Object.freeze({
+  living: [
+    { kind: "rug", u: 0.5, v: 0.56, layer: -1, scale: 0.9 },
+    { kind: "sofa", wall: "north", t: 0.5, scale: 0.9 },
+    { kind: "coffee_table", u: 0.5, v: 0.56, scale: 0.84 },
+    { kind: "armchair", wall: "west", t: 0.66, scale: 0.82 },
+    { kind: "floor_lamp", wall: "east", t: 0.24, scale: 0.8 },
+    { kind: "paper_scatter", u: 0.72, v: 0.72, layer: -1, scale: 0.78 }
+  ],
+  kitchen: [
+    { kind: "dining_table", u: 0.5, v: 0.56, scale: 0.84 },
+    { kind: "dining_chair", u: 0.32, v: 0.56, rotation: Math.PI / 2, scale: 0.76 },
+    { kind: "dining_chair", u: 0.68, v: 0.56, rotation: -Math.PI / 2, scale: 0.76 },
+    { kind: "stove", wall: "north", t: 0.72, scale: 0.82 },
+    { kind: "sink", wall: "west", t: 0.35, scale: 0.8 },
+    { kind: "trash_bag", wall: "east", t: 0.8, scale: 0.7 }
+  ],
+  bedroom: [
+    { kind: "rug", u: 0.52, v: 0.63, layer: -1, scale: 0.78 },
+    { kind: "bed", wall: "north", t: 0.55, scale: 0.86 },
+    { kind: "nightstand", wall: "north", t: 0.18, scale: 0.72 },
+    { kind: "dining_chair", wall: "west", t: 0.72, scale: 0.72 },
+    { kind: "suitcase", u: 0.76, v: 0.78, scale: 0.72 }
+  ],
+  bathroom: [
+    { kind: "toilet", wall: "north", t: 0.25, scale: 0.78 },
+    { kind: "sink", wall: "north", t: 0.72, scale: 0.72 },
+    { kind: "bathtub", wall: "east", t: 0.55, scale: 0.78 },
+    { kind: "towel", u: 0.45, v: 0.72, layer: -1, scale: 0.72 }
+  ],
+  closet: [
+    { kind: "storage_box", wall: "north", t: 0.28, scale: 0.8 },
+    { kind: "storage_box", wall: "north", t: 0.72, scale: 0.76 },
+    { kind: "suitcase", wall: "east", t: 0.55, scale: 0.72 }
+  ],
+  warehouse_storage: [
+    { kind: "pallet", u: 0.28, v: 0.65, scale: 0.82 },
+    { kind: "pallet", u: 0.7, v: 0.65, scale: 0.82 },
+    { kind: "storage_box", wall: "west", t: 0.3, scale: 0.76 },
+    { kind: "storage_box", wall: "west", t: 0.72, scale: 0.76 },
+    { kind: "oil_stain", u: 0.52, v: 0.78, layer: -1, scale: 0.82 }
+  ],
+  sales_floor: [
+    { kind: "shopping_cart", u: 0.72, v: 0.72, rotation: 0.1, scale: 0.78 },
+    { kind: "fallen_shelf", wall: "east", t: 0.55, scale: 0.82 },
+    { kind: "spill", u: 0.55, v: 0.7, layer: -1, scale: 0.85 },
+    { kind: "glass_shards", u: 0.25, v: 0.72, layer: -1, scale: 0.7 }
+  ],
+  stockroom: [
+    { kind: "storage_box", wall: "west", t: 0.3, scale: 0.82 },
+    { kind: "storage_box", wall: "west", t: 0.72, scale: 0.8 },
+    { kind: "pallet", u: 0.55, v: 0.68, scale: 0.82 }
+  ],
+  breakroom: [
+    { kind: "dining_chair", u: 0.32, v: 0.55, scale: 0.72 },
+    { kind: "dining_chair", u: 0.68, v: 0.55, scale: 0.72 },
+    { kind: "paper_scatter", u: 0.55, v: 0.78, layer: -1, scale: 0.7 }
+  ],
+  office: [
+    { kind: "office_chair", u: 0.5, v: 0.58, scale: 0.76 },
+    { kind: "file_stack", wall: "west", t: 0.32, scale: 0.7 },
+    { kind: "paper_scatter", u: 0.68, v: 0.72, layer: -1, scale: 0.65 }
+  ],
+  ward: [
+    { kind: "privacy_screen", u: 0.5, v: 0.5, scale: 0.78 },
+    { kind: "iv_stand", wall: "west", t: 0.34, scale: 0.74 },
+    { kind: "iv_stand", wall: "west", t: 0.72, scale: 0.74 },
+    { kind: "towel", u: 0.72, v: 0.75, layer: -1, scale: 0.7 }
+  ],
+  treatment: [
+    { kind: "privacy_screen", wall: "west", t: 0.52, scale: 0.78 },
+    { kind: "iv_stand", wall: "east", t: 0.4, scale: 0.74 },
+    { kind: "spill", u: 0.68, v: 0.72, layer: -1, scale: 0.72 }
+  ],
+  waiting: [
+    { kind: "waiting_bench", wall: "west", t: 0.3, scale: 0.82 },
+    { kind: "waiting_bench", wall: "west", t: 0.72, scale: 0.82 },
+    { kind: "wheelchair", wall: "east", t: 0.62, scale: 0.74 }
+  ],
+  nurse_station: [
+    { kind: "office_chair", u: 0.45, v: 0.55, scale: 0.72 },
+    { kind: "file_stack", wall: "west", t: 0.35, scale: 0.68 }
+  ],
+  supply: [
+    { kind: "storage_box", wall: "west", t: 0.32, scale: 0.74 },
+    { kind: "storage_box", wall: "west", t: 0.72, scale: 0.74 }
+  ],
+  squad: [
+    { kind: "office_chair", u: 0.32, v: 0.58, scale: 0.72 },
+    { kind: "office_chair", u: 0.68, v: 0.58, scale: 0.72 },
+    { kind: "radio", wall: "west", t: 0.3, scale: 0.72 },
+    { kind: "file_stack", wall: "west", t: 0.72, scale: 0.68 }
+  ],
+  lobby: [
+    { kind: "waiting_bench", wall: "west", t: 0.4, scale: 0.82 },
+    { kind: "waiting_bench", wall: "east", t: 0.68, scale: 0.82 }
+  ],
+  evidence: [
+    { kind: "storage_box", u: 0.35, v: 0.65, scale: 0.74 },
+    { kind: "storage_box", u: 0.7, v: 0.65, scale: 0.74 }
+  ],
+  armory: [
+    { kind: "storage_box", wall: "west", t: 0.55, scale: 0.74 }
+  ],
+  holding: [
+    { kind: "prison_bench", wall: "west", t: 0.55, scale: 0.8 }
+  ],
+  common: [
+    { kind: "prison_bench", wall: "west", t: 0.3, scale: 0.8 },
+    { kind: "prison_bench", wall: "west", t: 0.72, scale: 0.8 },
+    { kind: "paper_scatter", u: 0.62, v: 0.75, layer: -1, scale: 0.68 }
+  ],
+  cell: [
+    { kind: "bunk", wall: "north", t: 0.48, scale: 0.82 },
+    { kind: "toilet", wall: "east", t: 0.72, scale: 0.72 },
+    { kind: "blanket", u: 0.35, v: 0.72, layer: -1, scale: 0.72 }
+  ],
+  guard: [
+    { kind: "office_chair", u: 0.5, v: 0.58, scale: 0.72 },
+    { kind: "radio", wall: "west", t: 0.35, scale: 0.7 }
+  ],
+  cafeteria: [
+    { kind: "paper_scatter", u: 0.5, v: 0.75, layer: -1, scale: 0.7 }
+  ],
+  infirmary: [
+    { kind: "iv_stand", wall: "west", t: 0.5, scale: 0.72 },
+    { kind: "privacy_screen", wall: "east", t: 0.55, scale: 0.76 }
+  ],
+  intake: [
+    { kind: "waiting_bench", wall: "west", t: 0.5, scale: 0.8 }
+  ],
+  workshop: [
+    { kind: "work_table", u: 0.55, v: 0.56, scale: 0.84 },
+    { kind: "hand_truck", wall: "west", t: 0.7, scale: 0.74 },
+    { kind: "oil_stain", u: 0.68, v: 0.75, layer: -1, scale: 0.84 }
+  ],
+  loading: [
+    { kind: "pallet", u: 0.3, v: 0.68, scale: 0.82 },
+    { kind: "pallet", u: 0.7, v: 0.68, scale: 0.82 },
+    { kind: "hand_truck", wall: "east", t: 0.45, scale: 0.74 }
+  ]
+});
+
+function collectInteriorRooms(world, building) {
+  const doorKeys = new Set((building.doors || []).map((door) => `${door.x},${door.y}`));
+  const floorSet = new Set(
+    building.cells
+      .filter((cell) => getTile(world, cell.x, cell.y) === TILE.FLOOR && !doorKeys.has(`${cell.x},${cell.y}`))
+      .map((cell) => `${cell.x},${cell.y}`)
+  );
+  const rooms = [];
+  const directions = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+
+  while (floorSet.size) {
+    const firstKey = floorSet.values().next().value;
+    const [startX, startY] = firstKey.split(",").map(Number);
+    const queue = [{ x: startX, y: startY }];
+    const cells = [];
+    floorSet.delete(firstKey);
+
+    for (let index = 0; index < queue.length; index += 1) {
+      const cell = queue[index];
+      cells.push(cell);
+      for (const [dx, dy] of directions) {
+        const nextKey = `${cell.x + dx},${cell.y + dy}`;
+        if (!floorSet.has(nextKey)) continue;
+        floorSet.delete(nextKey);
+        queue.push({ x: cell.x + dx, y: cell.y + dy });
+      }
+    }
+
+    const minX = Math.min(...cells.map((cell) => cell.x));
+    const maxX = Math.max(...cells.map((cell) => cell.x));
+    const minY = Math.min(...cells.map((cell) => cell.y));
+    const maxY = Math.max(...cells.map((cell) => cell.y));
+    const centerX = cells.reduce((sum, cell) => sum + cell.x, 0) / cells.length;
+    const centerY = cells.reduce((sum, cell) => sum + cell.y, 0) / cells.length;
+    const edgeBySide = { north: [], east: [], south: [], west: [] };
+
+    for (const cell of cells) {
+      if (getTile(world, cell.x, cell.y - 1) === TILE.WALL) edgeBySide.north.push(cell);
+      if (getTile(world, cell.x + 1, cell.y) === TILE.WALL) edgeBySide.east.push(cell);
+      if (getTile(world, cell.x, cell.y + 1) === TILE.WALL) edgeBySide.south.push(cell);
+      if (getTile(world, cell.x - 1, cell.y) === TILE.WALL) edgeBySide.west.push(cell);
+    }
+
+    rooms.push({
+      cells,
+      minX,
+      maxX,
+      minY,
+      maxY,
+      centerX,
+      centerY,
+      width: maxX - minX + 1,
+      height: maxY - minY + 1,
+      edgeBySide
+    });
+  }
+
+  if (!rooms.length) {
+    const cells = building.cells.filter((cell) => getTile(world, cell.x, cell.y) === TILE.FLOOR);
+    if (cells.length) {
+      const minX = Math.min(...cells.map((cell) => cell.x));
+      const maxX = Math.max(...cells.map((cell) => cell.x));
+      const minY = Math.min(...cells.map((cell) => cell.y));
+      const maxY = Math.max(...cells.map((cell) => cell.y));
+      rooms.push({
+        cells,
+        minX,
+        maxX,
+        minY,
+        maxY,
+        centerX: (minX + maxX) / 2,
+        centerY: (minY + maxY) / 2,
+        width: maxX - minX + 1,
+        height: maxY - minY + 1,
+        edgeBySide: { north: [], east: [], south: [], west: [] }
+      });
+    }
+  }
+
+  rooms.sort((a, b) => b.cells.length - a.cells.length);
+  return rooms;
+}
+
+function roomTarget(room, spec) {
+  if (spec.wall) {
+    const t = clamp(spec.t ?? 0.5, 0.08, 0.92);
+    if (spec.wall === "north" || spec.wall === "south") {
+      return {
+        x: room.minX + (room.maxX - room.minX) * t,
+        y: spec.wall === "north" ? room.minY : room.maxY
+      };
+    }
+    return {
+      x: spec.wall === "west" ? room.minX : room.maxX,
+      y: room.minY + (room.maxY - room.minY) * t
+    };
+  }
+  return {
+    x: room.minX + (room.maxX - room.minX) * clamp(spec.u ?? 0.5, 0.08, 0.92),
+    y: room.minY + (room.maxY - room.minY) * clamp(spec.v ?? 0.5, 0.08, 0.92)
+  };
+}
+
+function chooseRoomCell(world, building, room, spec, usedCells, minimumDoorDistance = 2) {
+  const target = roomTarget(room, spec);
+  const preferred = spec.wall && room.edgeBySide[spec.wall]?.length
+    ? room.edgeBySide[spec.wall]
+    : room.cells;
+  const fallback = preferred === room.cells ? [] : room.cells;
+  const pools = [preferred, fallback];
+
+  for (const pool of pools) {
+    const candidates = pool
+      .filter((cell) => {
+        const key = `${cell.x},${cell.y}`;
+        if (usedCells.has(key)) return false;
+        if (building.stairTile && cell.x === building.stairTile.x && cell.y === building.stairTile.y) return false;
+        if (getTile(world, cell.x, cell.y) !== TILE.FLOOR) return false;
+        return (building.doors || []).every(
+          (door) => Math.abs(door.x - cell.x) + Math.abs(door.y - cell.y) >= minimumDoorDistance
+        );
+      })
+      .sort((a, b) => Math.hypot(a.x - target.x, a.y - target.y) - Math.hypot(b.x - target.x, b.y - target.y));
+    if (candidates.length) return candidates[0];
+  }
+
+  return null;
+}
+
+function wallOffset(side, amount = 4) {
+  return {
+    x: side === "west" ? -amount : side === "east" ? amount : 0,
+    y: side === "north" ? -amount : side === "south" ? amount : 0
+  };
+}
+
+function nearestWallSide(world, cell) {
+  if (getTile(world, cell.x, cell.y - 1) === TILE.WALL) return "north";
+  if (getTile(world, cell.x + 1, cell.y) === TILE.WALL) return "east";
+  if (getTile(world, cell.x, cell.y + 1) === TILE.WALL) return "south";
+  if (getTile(world, cell.x - 1, cell.y) === TILE.WALL) return "west";
+  return "north";
+}
+
+function furnishBuildingInterior(world, building, rng) {
+  const rooms = collectInteriorRooms(world, building);
+  if (!rooms.length) {
+    building.rooms = [];
+    building.decor = [];
+    return;
+  }
+  const themeSets = BUILDING_ROOM_THEMES[building.type] || BUILDING_ROOM_THEMES.house;
+  const themes = themeSets[(building.interiorVariant || 0) % themeSets.length];
+  const usedCells = new Set((building.doors || []).map((door) => `${door.x},${door.y}`));
+  if (building.stairTile) usedCells.add(`${building.stairTile.x},${building.stairTile.y}`);
+  building.rooms = [];
+  building.decor = [];
+  let containerIndex = 0;
+
+  const addContainer = (room, spec) => {
+    const cell = chooseRoomCell(world, building, room, spec, usedCells, 2);
+    if (!cell) return false;
+    const side = spec.wall || nearestWallSide(world, cell);
+    const offset = wallOffset(side, spec.wall ? 4 : 0);
+    usedCells.add(`${cell.x},${cell.y}`);
+    world.containers.push({
+      id: `${building.id}-c${containerIndex++}`,
+      buildingId: building.id,
+      chunkKey: world.activeChunkKey || null,
+      x: (cell.x + 0.5) * world.tileSize + offset.x,
+      y: (cell.y + 0.5) * world.tileSize + offset.y,
+      kind: spec.kind,
+      side,
+      searched: false,
+      loot: createLoot(
+        rng,
+        BUILDING_TYPES[building.type].loot,
+        1,
+        ["hospital", "sheriff", "prison"].includes(building.type) ? 5 : 4
+      )
+    });
+    return true;
+  };
+
+  rooms.forEach((room, index) => {
+    room.theme = themes[index % themes.length];
+    building.rooms.push({
+      theme: room.theme,
+      minX: room.minX,
+      maxX: room.maxX,
+      minY: room.minY,
+      maxY: room.maxY
+    });
+
+    for (const spec of ROOM_CONTAINER_LAYOUTS[room.theme] || []) addContainer(room, spec);
   });
 
-  var INTERIOR_DECOR_REQUIRED = Object.freeze({
-    house: ["rug", "couch", "coffee_table", "bed", "lamp", "papers"],
-    grocery: ["fallen_shelf", "shopping_cart", "boxes", "spill"],
-    hospital: ["privacy_screen", "iv_stand", "waiting_chair", "linen"],
-    sheriff: ["waiting_bench", "office_chair", "files", "radio"],
-    prison: ["bunk", "toilet", "bench", "blanket"],
-    warehouse: ["pallet", "barrel", "boxes", "oil_stain"]
+  const minimumContainers = {
+    house: 5,
+    grocery: 9,
+    hospital: 10,
+    sheriff: 8,
+    prison: 10,
+    warehouse: 8
+  }[building.type] || 5;
+  const fallbackKinds = furnishKinds(building.type, building.interiorVariant || 0);
+  const fallbackSpecs = [
+    { wall: "north", t: 0.18 },
+    { wall: "north", t: 0.5 },
+    { wall: "north", t: 0.82 },
+    { wall: "east", t: 0.3 },
+    { wall: "east", t: 0.72 },
+    { wall: "south", t: 0.5 },
+    { wall: "west", t: 0.3 },
+    { wall: "west", t: 0.72 }
+  ];
+
+  let fallbackIndex = 0;
+  while (containerIndex < minimumContainers && fallbackIndex < rooms.length * fallbackSpecs.length * 2) {
+    const room = rooms[fallbackIndex % rooms.length];
+    const baseSpec = fallbackSpecs[Math.floor(fallbackIndex / Math.max(1, rooms.length)) % fallbackSpecs.length];
+    addContainer(room, {
+      ...baseSpec,
+      kind: fallbackKinds[containerIndex % fallbackKinds.length]
+    });
+    fallbackIndex += 1;
+  }
+
+  rooms.forEach((room) => {
+    const specs = ROOM_DECOR_LAYOUTS[room.theme] || [];
+    for (const spec of specs) {
+      if (INTERIOR_LARGE_PROPS.has(spec.kind) && (room.width < 3 || room.height < 3)) continue;
+      const doorDistance = INTERIOR_LARGE_PROPS.has(spec.kind) ? 2 : 1;
+      const cell = chooseRoomCell(world, building, room, spec, usedCells, doorDistance);
+      if (!cell) continue;
+      const side = spec.wall || nearestWallSide(world, cell);
+      const offset = wallOffset(side, spec.wall ? 3 : 0);
+      const flat = INTERIOR_FLAT_PROPS.has(spec.kind);
+      if (!flat) usedCells.add(`${cell.x},${cell.y}`);
+      const rotation = spec.rotation ?? (spec.wall === "east" || spec.wall === "west" ? Math.PI / 2 : 0);
+      building.decor.push({
+        id: `${building.id}-decor-${building.decor.length}`,
+        buildingId: building.id,
+        chunkKey: building.chunkKey,
+        kind: spec.kind,
+        theme: room.theme,
+        x: (cell.x + 0.5) * world.tileSize + offset.x,
+        y: (cell.y + 0.5) * world.tileSize + offset.y,
+        rotation,
+        scale: spec.scale || 0.8,
+        layer: spec.layer ?? (flat ? -1 : 0),
+        variant: (building.interiorVariant + building.decor.length) % 4
+      });
+    }
   });
 
-  var INTERIOR_DECOR_EDGE = new Set([
-    "couch", "armchair", "bed", "nightstand", "bookshelf", "lamp",
-    "fallen_shelf", "sign", "privacy_screen", "waiting_chair",
-    "waiting_bench", "office_chair", "radio", "fallen_flag",
-    "bunk", "toilet", "bench", "graffiti", "barrel", "tire",
-    "hand_truck", "picture_frame"
-  ]);
+  building.decor.sort((a, b) => a.layer - b.layer);
+}
 
-  var INTERIOR_DECOR_LARGE = new Set([
-    "couch", "bed", "bunk", "mattress", "fallen_shelf",
-    "privacy_screen", "waiting_bench", "bench", "shopping_cart",
-    "wheelchair", "pallet", "hand_truck", "tarp"
-  ]);
+function drawInteriorProp(ctx, prop) {
+  const kind = prop.kind;
+  const variant = prop.variant || 0;
+  const wood = ["#6c523d", "#765a42", "#5e4939", "#7d6147"][variant % 4];
+  const fabric = ["#66705f", "#6d6255", "#59686b", "#6c5960"][variant % 4];
+  const metal = ["#59635f", "#69736e", "#4d5956", "#77807a"][variant % 4];
 
-  var INTERIOR_DECOR_FLAT = new Set([
-    "rug", "blanket", "linen", "tarp", "papers", "files", "books",
-    "trash", "glass", "cardboard", "spill", "blood_smear",
-    "stain", "mold", "oil_stain", "graffiti", "fallen_flag", "cable"
-  ]);
+  const shadow = (w, h, y = 3) => {
+    ctx.fillStyle = "rgba(3,5,4,.28)";
+    ctx.beginPath();
+    ctx.ellipse(2, y, w / 2, h / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  };
 
+  if (kind === "rug") {
+    ctx.fillStyle = fabric;
+    roundedRectPath(ctx, -18, -11, 36, 22, 3);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(38,31,26,.5)";
+    ctx.strokeRect(-16.5, -9.5, 33, 19);
+    ctx.fillStyle = "rgba(220,208,177,.08)";
+    ctx.fillRect(-12, -7, 24, 3);
+    ctx.fillRect(-12, 4, 24, 2);
+  } else if (kind === "sofa") {
+    shadow(34, 15);
+    ctx.fillStyle = "#292b28";
+    roundedRectPath(ctx, -18, -9, 36, 18, 4);
+    ctx.fill();
+    ctx.fillStyle = fabric;
+    roundedRectPath(ctx, -16, -8, 32, 15, 4);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(40,34,29,.58)";
+    ctx.strokeRect(-11.5, -4.5, 10, 9);
+    ctx.strokeRect(1.5, -4.5, 10, 9);
+    ctx.fillStyle = "#493e34";
+    ctx.fillRect(-19, -6, 3, 13);
+    ctx.fillRect(16, -6, 3, 13);
+  } else if (["armchair", "dining_chair", "office_chair"].includes(kind)) {
+    shadow(15, 11);
+    ctx.fillStyle = kind === "office_chair" ? "#39413e" : fabric;
+    roundedRectPath(ctx, -7, -8, 14, 15, 3);
+    ctx.fill();
+    ctx.fillStyle = "rgba(226,216,190,.09)";
+    ctx.fillRect(-4, -6, 8, 2);
+    ctx.strokeStyle = "#3a332c";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-5, 6);
+    ctx.lineTo(-6, 11);
+    ctx.moveTo(5, 6);
+    ctx.lineTo(6, 11);
+    if (kind === "office_chair") {
+      ctx.moveTo(0, 6);
+      ctx.lineTo(0, 12);
+      ctx.moveTo(-6, 12);
+      ctx.lineTo(6, 12);
+    }
+    ctx.stroke();
+  } else if (["coffee_table", "nightstand", "dining_table", "work_table"].includes(kind)) {
+    const w = kind === "dining_table" || kind === "work_table" ? 28 : kind === "coffee_table" ? 24 : 15;
+    const h = kind === "dining_table" || kind === "work_table" ? 16 : kind === "coffee_table" ? 12 : 14;
+    shadow(w, h * 0.65);
+    ctx.fillStyle = "#2c241d";
+    roundedRectPath(ctx, -w / 2 - 1, -h / 2 - 1, w + 2, h + 2, 2);
+    ctx.fill();
+    ctx.fillStyle = kind === "work_table" ? "#625443" : wood;
+    roundedRectPath(ctx, -w / 2, -h / 2, w, h, 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(229,211,177,.12)";
+    ctx.fillRect(-w / 2 + 2, -h / 2 + 2, w - 4, 2);
+    if (kind === "work_table") {
+      ctx.fillStyle = metal;
+      ctx.fillRect(-7, -3, 10, 5);
+      ctx.fillStyle = "#b7a35e";
+      ctx.fillRect(6, -3, 5, 2);
+    }
+  } else if (kind === "floor_lamp") {
+    ctx.strokeStyle = "#4a443b";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, -8);
+    ctx.lineTo(0, 9);
+    ctx.moveTo(-5, 9);
+    ctx.lineTo(5, 9);
+    ctx.stroke();
+    ctx.fillStyle = "#b6a36d";
+    ctx.beginPath();
+    ctx.arc(0, -10, 6, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (kind === "bed" || kind === "bunk") {
+    shadow(30, 16);
+    ctx.fillStyle = kind === "bunk" ? "#3c4541" : "#40362e";
+    roundedRectPath(ctx, -16, -9, 32, 18, 3);
+    ctx.fill();
+    ctx.fillStyle = "#c5c0aa";
+    roundedRectPath(ctx, -14, -7, 28, 14, 3);
+    ctx.fill();
+    ctx.fillStyle = "#e0d8be";
+    roundedRectPath(ctx, -12, -5, 8, 6, 2);
+    ctx.fill();
+    ctx.fillStyle = fabric;
+    ctx.fillRect(-1, -5, 12, 10);
+    if (kind === "bunk") {
+      ctx.strokeStyle = "#79837d";
+      ctx.lineWidth = 1.5;
+      ctx.strokeRect(-16.5, -9.5, 33, 19);
+      ctx.beginPath();
+      ctx.moveTo(-14, 0);
+      ctx.lineTo(14, 0);
+      ctx.stroke();
+    }
+  } else if (kind === "stove") {
+    shadow(18, 13);
+    ctx.fillStyle = "#3d4542";
+    roundedRectPath(ctx, -9, -8, 18, 16, 2);
+    ctx.fill();
+    ctx.fillStyle = "#202624";
+    for (const [x, y] of [[-4, -3], [4, -3], [-4, 4], [4, 4]]) {
+      ctx.beginPath();
+      ctx.arc(x, y, 2.2, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#aaa65f";
+    ctx.fillRect(-6, -6, 12, 2);
+  } else if (kind === "sink") {
+    shadow(18, 11);
+    ctx.fillStyle = "#6f7772";
+    roundedRectPath(ctx, -9, -7, 18, 14, 3);
+    ctx.fill();
+    ctx.fillStyle = "#26302d";
+    roundedRectPath(ctx, -6, -4, 12, 8, 3);
+    ctx.fill();
+    ctx.strokeStyle = "#b0b6b0";
+    ctx.beginPath();
+    ctx.arc(0, -4, 4, Math.PI, Math.PI * 2);
+    ctx.stroke();
+  } else if (kind === "toilet") {
+    shadow(16, 12);
+    ctx.fillStyle = "#c3c7ba";
+    roundedRectPath(ctx, -6, -9, 12, 8, 2);
+    ctx.fill();
+    ctx.beginPath();
+    ctx.ellipse(0, 4, 8, 7, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#59615c";
+    ctx.beginPath();
+    ctx.ellipse(0, 4, 4, 3, 0, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (kind === "bathtub") {
+    shadow(30, 13);
+    ctx.fillStyle = "#b9beb2";
+    roundedRectPath(ctx, -16, -8, 32, 16, 6);
+    ctx.fill();
+    ctx.fillStyle = "#5f6964";
+    roundedRectPath(ctx, -12, -5, 24, 10, 5);
+    ctx.fill();
+    ctx.fillStyle = "rgba(172,200,199,.18)";
+    roundedRectPath(ctx, -10, -3, 20, 6, 3);
+    ctx.fill();
+  } else if (["suitcase", "storage_box"].includes(kind)) {
+    shadow(18, 10);
+    ctx.fillStyle = kind === "suitcase" ? "#514940" : "#846a49";
+    roundedRectPath(ctx, -9, -6, 18, 12, 2);
+    ctx.fill();
+    ctx.strokeStyle = "rgba(43,34,27,.55)";
+    ctx.strokeRect(-7.5, -4.5, 15, 9);
+    ctx.fillStyle = "#b49b5e";
+    ctx.fillRect(-2, -7, 4, 2);
+  } else if (kind === "trash_bag") {
+    ctx.fillStyle = "#252a27";
+    ctx.beginPath();
+    ctx.moveTo(-7, 6);
+    ctx.quadraticCurveTo(-9, -2, -4, -8);
+    ctx.lineTo(-2, -11);
+    ctx.lineTo(1, -8);
+    ctx.quadraticCurveTo(8, -2, 6, 7);
+    ctx.closePath();
+    ctx.fill();
+  } else if (kind === "fallen_shelf") {
+    shadow(31, 10);
+    ctx.fillStyle = "#2c2f2b";
+    ctx.fillRect(-16, -6, 32, 12);
+    ctx.fillStyle = "#5f5c50";
+    ctx.fillRect(-15, -5, 30, 10);
+    ctx.fillStyle = "#262a27";
+    ctx.fillRect(-13, -1, 26, 2);
+    ["#865342", "#65775c", "#b19859", "#5c6d7a"].forEach((color, index) => {
+      ctx.fillStyle = color;
+      ctx.fillRect(-12 + index * 7, -4 + index % 2 * 5, 5, 4);
+    });
+  } else if (kind === "shopping_cart") {
+    ctx.strokeStyle = "#7d8882";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(-12, -6);
+    ctx.lineTo(10, -4);
+    ctx.lineTo(7, 7);
+    ctx.lineTo(-9, 7);
+    ctx.closePath();
+    for (let x = -7; x <= 5; x += 6) {
+      ctx.moveTo(x, -5);
+      ctx.lineTo(x, 6);
+    }
+    ctx.stroke();
+    ctx.fillStyle = "#202624";
+    ctx.beginPath();
+    ctx.arc(-7, 10, 2.5, 0, Math.PI * 2);
+    ctx.arc(7, 10, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (kind === "privacy_screen") {
+    shadow(30, 10);
+    ctx.fillStyle = "#9ca8a0";
+    roundedRectPath(ctx, -16, -8, 32, 16, 2);
+    ctx.fill();
+    ctx.strokeStyle = "#65706b";
+    ctx.strokeRect(-16.5, -8.5, 33, 17);
+    ctx.fillStyle = "rgba(218,228,217,.2)";
+    ctx.fillRect(-13, -5, 26, 3);
+  } else if (kind === "iv_stand") {
+    ctx.strokeStyle = "#939e98";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.moveTo(0, -11);
+    ctx.lineTo(0, 10);
+    ctx.moveTo(-5, 10);
+    ctx.lineTo(5, 10);
+    ctx.moveTo(-5, -10);
+    ctx.lineTo(5, -10);
+    ctx.stroke();
+    ctx.fillStyle = "rgba(190,214,203,.55)";
+    roundedRectPath(ctx, -7, -8, 4, 7, 1);
+    ctx.fill();
+  } else if (kind === "wheelchair") {
+    ctx.strokeStyle = "#7d8882";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(-5, 4, 7, 0, Math.PI * 2);
+    ctx.moveTo(2, -8);
+    ctx.lineTo(2, 7);
+    ctx.lineTo(10, 7);
+    ctx.moveTo(2, -2);
+    ctx.lineTo(-5, -2);
+    ctx.stroke();
+  } else if (kind === "waiting_bench" || kind === "prison_bench") {
+    shadow(30, 10);
+    ctx.fillStyle = kind === "prison_bench" ? "#686253" : "#56635f";
+    roundedRectPath(ctx, -16, -6, 32, 12, 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(230,219,188,.09)";
+    ctx.fillRect(-13, -4, 26, 2);
+    ctx.fillStyle = "#343a37";
+    ctx.fillRect(-12, 6, 3, 6);
+    ctx.fillRect(9, 6, 3, 6);
+  } else if (kind === "file_stack" || kind === "paper_scatter") {
+    const count = kind === "file_stack" ? 3 : 5;
+    for (let index = 0; index < count; index += 1) {
+      ctx.save();
+      ctx.translate(-7 + index * 3, -4 + index * 2);
+      ctx.rotate(kind === "file_stack" ? 0.04 * index : (index - 2) * 0.12);
+      ctx.fillStyle = index % 2 ? "#c5bda2" : "#a89f87";
+      ctx.fillRect(-5, -3, 10, 6);
+      ctx.restore();
+    }
+  } else if (kind === "radio") {
+    shadow(16, 10);
+    ctx.fillStyle = "#3b4541";
+    roundedRectPath(ctx, -8, -6, 16, 12, 2);
+    ctx.fill();
+    ctx.fillStyle = "#151b19";
+    ctx.fillRect(-5, -4, 8, 6);
+    ctx.fillStyle = "#b19d58";
+    ctx.fillRect(5, -3, 2, 2);
+    ctx.strokeStyle = "#8a938e";
+    ctx.beginPath();
+    ctx.moveTo(4, -6);
+    ctx.lineTo(8, -12);
+    ctx.stroke();
+  } else if (kind === "pallet") {
+    shadow(30, 10);
+    ctx.fillStyle = "#6c5438";
+    for (let y = -7; y <= 5; y += 6) ctx.fillRect(-15, y, 30, 4);
+    ctx.fillStyle = "#3f3428";
+    ctx.fillRect(-11, -9, 3, 20);
+    ctx.fillRect(8, -9, 3, 20);
+  } else if (kind === "hand_truck") {
+    ctx.strokeStyle = "#727d77";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-4, -11);
+    ctx.lineTo(-4, 9);
+    ctx.lineTo(9, 9);
+    ctx.moveTo(-4, 1);
+    ctx.lineTo(7, -7);
+    ctx.stroke();
+    ctx.fillStyle = "#202624";
+    ctx.beginPath();
+    ctx.arc(-6, 11, 2.5, 0, Math.PI * 2);
+    ctx.arc(8, 11, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (kind === "oil_stain" || kind === "spill") {
+    ctx.fillStyle = kind === "oil_stain" ? "rgba(21,24,22,.62)" : "rgba(95,79,49,.38)";
+    ctx.beginPath();
+    ctx.ellipse(0, 0, 14, 6, -0.2, 0, Math.PI * 2);
+    ctx.ellipse(8, -2, 6, 3, 0.2, 0, Math.PI * 2);
+    ctx.fill();
+  } else if (kind === "glass_shards") {
+    ctx.fillStyle = "rgba(141,181,184,.48)";
+    for (let index = 0; index < 6; index += 1) {
+      ctx.beginPath();
+      const x = -9 + index * 3;
+      const y = -4 + index % 3 * 4;
+      ctx.moveTo(x, y);
+      ctx.lineTo(x + 4, y + 1);
+      ctx.lineTo(x + 1, y + 4);
+      ctx.closePath();
+      ctx.fill();
+    }
+  } else if (kind === "towel" || kind === "blanket") {
+    ctx.fillStyle = fabric;
+    roundedRectPath(ctx, -11, -7, 22, 14, 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(224,213,184,.1)";
+    ctx.fillRect(-8, -4, 16, 2);
+  }
+}
   function decorateBuildingInterior(world, building) {
     const rng = new RNG(`${world.seed}:${building.id}:INTERIOR-DECOR`);
     const tileSize = world.tileSize;
@@ -2133,30 +2972,30 @@ world.buildings.push(building);
     ctx.closePath();
     ctx.fill();
   }
-  var FURNITURE_SIZES = Object.freeze({
-    fridge: [24, 27],
-    cupboard: [27, 19],
-    dresser: [28, 19],
-    counter: [30, 20],
-    shelf: [29, 17],
-    medical_cabinet: [25, 19],
-    supply_cart: [25, 18],
-    locker: [24, 20],
-    desk: [30, 20],
-    crate: [24, 24],
-    table: [27, 21],
-    checkout: [30, 20],
-    freezer: [30, 21],
-    reception: [31, 21],
-    hospital_bed: [29, 18],
-    gurney: [28, 17],
-    evidence_cabinet: [27, 19],
-    gun_locker: [27, 20],
-    cell_locker: [23, 19],
-    canteen_table: [30, 19],
-    guard_desk: [30, 20],
-    workbench: [30, 20],
-    tool_cabinet: [27, 19]
+var FURNITURE_SIZES = Object.freeze({
+    fridge: [20, 23],
+    cupboard: [23, 15],
+    dresser: [24, 15],
+    counter: [25, 16],
+    shelf: [25, 13],
+    medical_cabinet: [21, 15],
+    supply_cart: [22, 14],
+    locker: [20, 16],
+    desk: [25, 16],
+    crate: [20, 20],
+    table: [24, 16],
+    checkout: [25, 16],
+    freezer: [25, 17],
+    reception: [26, 17],
+    hospital_bed: [25, 15],
+    gurney: [24, 14],
+    evidence_cabinet: [23, 15],
+    gun_locker: [23, 16],
+    cell_locker: [20, 15],
+    canteen_table: [25, 15],
+    guard_desk: [25, 16],
+    workbench: [25, 16],
+    tool_cabinet: [23, 15]
   });
   function furnitureSize(container) {
     const base = FURNITURE_SIZES[container.kind] || [26, 20];
