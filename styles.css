@@ -380,7 +380,47 @@ kbd { padding: 3px 5px; color: #778078; border: 1px solid rgba(255,255,255,.14);
   .rule { margin: auto; }
   .start-card { width: min(500px, 100%); margin: auto; }
   .dispatch { margin-bottom: 0; }
-  .minimap-wrap { display: none; }
+ /* Keep the minimap visible on mobile */
+.minimap-wrap {
+  display: grid;
+  top: 70px;
+  right: 10px;
+  width: 120px;
+  padding: 5px;
+  gap: 4px;
+  z-index: 20;
+  pointer-events: none;
+  background: rgba(5, 8, 6, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  backdrop-filter: blur(4px);
+}
+#minimap {
+  display: block;
+  width: 108px;
+  height: 108px;
+  image-rendering: pixelated;
+}
+
+.minimap-wrap span {
+  font-size: 6px;
+}
+@media (max-width: 680px) and (orientation: portrait) {
+  .minimap-wrap {
+    top: 68px;
+    right: 8px;
+    width: 104px;
+    padding: 4px;
+  }
+
+  #minimap {
+    width: 94px;
+    height: 94px;
+  }
+}
+/* Prevent the objective from overlapping the map */
+.objective {
+  top: 215px;
+}
   .objective { top: 164px; right: 10px; }
   .vitals { top: 74px; left: 10px; width: 162px; padding: 10px; }
   .location-readout { display: none; }
