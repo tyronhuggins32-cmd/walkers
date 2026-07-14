@@ -606,13 +606,546 @@
       if (getTile(world, x, y) === TILE.WALL) addDoor(world, building, x, y, side, false, "interior");
     }
   }
-  function furnishKinds(type) {
-    if (type === "grocery") return ["checkout", "shelf", "shelf", "freezer", "shelf", "counter"];
-    if (type === "hospital") return ["reception", "hospital_bed", "medical_cabinet", "gurney", "supply_cart", "hospital_bed"];
-    if (type === "sheriff") return ["desk", "locker", "evidence_cabinet", "desk", "gun_locker"];
-    if (type === "prison") return ["cell_locker", "canteen_table", "cell_locker", "medical_cabinet", "guard_desk", "crate"];
-    if (type === "warehouse") return ["crate", "workbench", "crate", "tool_cabinet"];
-    return ["fridge", "dresser", "cupboard", "table"];
+    function designBuildingInterior(world, building, rect, type, rng, exteriorVariant) {
+    const x1 = rect.x + 1;
+    const x2 = rect.x + rect.w - 2;
+    const y1 = rect.y + 1;
+    const y2 = rect.y + rect.h - 2;
+
+    const interiorVariant = rng.int(0, 4);
+
+    const interiorNames = {
+      house: [
+        "Central Hall Home",
+        "Shotgun Home",
+        "Open-Plan Home",
+        "Split-Wing Home",
+        "Four-Room Farmhouse"
+      ],
+      grocery: [
+        "Classic Market",
+        "Corner Market",
+        "Deli Market",
+        "Neighborhood Grocery",
+        "County Supermarket"
+      ],
+      hospital: [
+        "Cross-Wing Hospital",
+        "Patient Ward",
+        "Emergency Department",
+        "Clinic Wing",
+        "Medical Ward Grid"
+      ],
+      sheriff: [
+        "Lobby and Holding",
+        "County Office",
+        "Evidence Station",
+        "Squad Room Station",
+        "Central Corridor Station"
+      ],
+      prison: [
+        "Cellblock Corridor",
+        "Courtyard Block",
+        "Intake Block",
+        "H-Block",
+        "Dormitory Block"
+      ],
+      warehouse: [
+        "Office Warehouse",
+        "Loading Depot",
+        "Repair Workshop",
+        "Distribution Center",
+        "Cold Storage Depot"
+      ]
+    };
+
+    building.interiorVariant = interiorVariant;
+    building.interiorName =
+      interiorNames[type]?.[interiorVariant] || "Standard Interior";
+
+    /*
+     * Converts percentages such as 0.5 into safe tile coordinates.
+     * This keeps layouts working with differently sized buildings.
+     */
+    const wallX = (ratio) =>
+      Math.max(
+        x1 + 1,
+        Math.min(x2 - 1, rect.x + Math.floor(rect.w * ratio))
+      );
+
+    const wallY = (ratio) =>
+      Math.max(
+        y1 + 1,
+        Math.min(y2 - 1, rect.y + Math.floor(rect.h * ratio))
+      );
+
+    const doorX = (ratio) =>
+      Math.max(
+        x1,
+        Math.min(x2, rect.x + Math.floor(rect.w * ratio))
+      );
+
+    const doorY = (ratio) =>
+      Math.max(
+        y1,
+        Math.min(y2, rect.y + Math.floor(rect.h * ratio))
+      );
+
+    /*
+     * Creates a vertical interior wall.
+     *
+     * at: wall position as a percentage of building width.
+     * from/to: wall length as percentages of building height.
+     * openings: door positions as percentages of building height.
+     */
+    const V = (
+      at,
+      from = 0.08,
+      to = 0.92,
+      openings = [0.5]
+    ) => {
+      const coordinate = wallX(at);
+      const start = doorY(from);
+      const end = doorY(to);
+
+      const doors = [
+        ...new Set(
+          openings
+            .map(doorY)
+            .filter((value) => value >= start && value <= end)
+        )
+      ];
+
+      if (start <= end) {
+        addPartition(
+          world,
+          building,
+          "vertical",
+          coordinate,
+          start,
+          end,
+          doors
+        );
+      }
+    };
+
+    /*
+     * Creates a horizontal interior wall.
+     *
+     * at: wall position as a percentage of building height.
+     * from/to: wall length as percentages of building width.
+     * openings: door positions as percentages of building width.
+     */
+    const H = (
+      at,
+      from = 0.08,
+      to = 0.92,
+      openings = [0.5]
+    ) => {
+      const coordinate = wallY(at);
+      const start = doorX(from);
+      const end = doorX(to);
+
+      const doors = [
+        ...new Set(
+          openings
+            .map(doorX)
+            .filter((value) => value >= start && value <= end)
+        )
+      ];
+
+      if (start <= end) {
+        addPartition(
+          world,
+          building,
+          "horizontal",
+          coordinate,
+          start,
+          end,
+          doors
+        );
+      }
+    };
+
+    /*
+     * Courtyard prisons already have an empty center in their exterior
+     * footprint. These doors open the cellblock into that courtyard.
+     */
+    if (type === "prison" && exteriorVariant === "courtyard_block") {
+      const centerX = rect.x + Math.floor(rect.w / 2);
+
+      addDoor(
+        world,
+        building,
+        centerX,
+        rect.y + 2,
+        "north",
+        false,
+        "barred"
+      );
+
+      addDoor(
+        world,
+        building,
+        centerX,
+        rect.y + rect.h - 3,
+        "south",
+        false,
+        "barred"
+      );
+
+      for (const cell of building.cells) {
+        const innerEdge =
+          cell.x === rect.x + 2 ||
+          cell.x === rect.x + rect.w - 3 ||
+          cell.y === rect.y + 2 ||
+          cell.y === rect.y + rect.h - 3;
+
+        if (
+          innerEdge &&
+          getTile(world, cell.x, cell.y) === TILE.WALL &&
+          (cell.x + cell.y) % 2 === 0
+        ) {
+          building.barTiles.push({
+            x: cell.x,
+            y: cell.y
+          });
+        }
+      }
+    }
+
+    /*
+     * HOUSE INTERIORS
+     */
+    if (type === "house") {
+      switch (interiorVariant) {
+        case 0:
+          // Central hallway with living room, kitchen and bedrooms.
+          V(0.5, 0.08, 0.92, [0.48]);
+          H(0.62, 0.08, 0.5, [0.24]);
+          H(0.38, 0.5, 0.92, [0.76]);
+          break;
+
+        case 1:
+          // Long shotgun-style hallway.
+          V(0.36, 0.08, 0.92, [0.25, 0.7]);
+          H(0.5, 0.36, 0.92, [0.7]);
+          H(0.72, 0.08, 0.36, [0.2]);
+          break;
+
+        case 2:
+          // Open living area with three rear rooms.
+          H(0.55, 0.08, 0.92, [0.5]);
+          V(0.38, 0.55, 0.92, [0.74]);
+          V(0.68, 0.55, 0.92, [0.74]);
+          break;
+
+        case 3:
+          // Two separate wings connected by a central corridor.
+          V(0.5, 0.08, 0.92, [0.22, 0.78]);
+          H(0.48, 0.08, 0.5, [0.25]);
+          H(0.48, 0.5, 0.92, [0.74]);
+          break;
+
+        case 4:
+          // Farmhouse divided into four major rooms.
+          V(0.5, 0.08, 0.92, [0.5]);
+          H(0.5, 0.08, 0.92, [0.24, 0.76]);
+          H(0.73, 0.5, 0.92, [0.75]);
+          break;
+      }
+    }
+
+    /*
+     * GROCERY STORE INTERIORS
+     */
+    else if (type === "grocery") {
+      switch (interiorVariant) {
+        case 0:
+          // Large shopping floor and rear stockroom.
+          H(0.72, 0.08, 0.92, [0.42, 0.68]);
+          break;
+
+        case 1:
+          // Open store with side office and rear storage.
+          V(0.72, 0.08, 0.92, [0.5]);
+          H(0.38, 0.72, 0.92, [0.82]);
+          break;
+
+        case 2:
+          // Deli, freezer room and stockroom.
+          H(0.64, 0.08, 0.92, [0.35, 0.7]);
+          V(0.36, 0.64, 0.92, [0.78]);
+          V(0.7, 0.64, 0.92, [0.78]);
+          break;
+
+        case 3:
+          // Small corner market with service counter wing.
+          V(0.3, 0.08, 0.92, [0.55]);
+          H(0.68, 0.3, 0.92, [0.72]);
+          break;
+
+        case 4:
+          // Supermarket with two offices and a rear loading area.
+          H(0.75, 0.08, 0.92, [0.4, 0.62]);
+          V(0.2, 0.08, 0.75, [0.45]);
+          V(0.8, 0.08, 0.75, [0.45]);
+          break;
+      }
+    }
+
+    /*
+     * HOSPITAL INTERIORS
+     */
+    else if (type === "hospital") {
+      switch (interiorVariant) {
+        case 0:
+          // Four hospital wings connected by crossing corridors.
+          V(0.5, 0.08, 0.92, [0.2, 0.5, 0.8]);
+          H(0.5, 0.08, 0.92, [0.2, 0.5, 0.8]);
+          break;
+
+        case 1:
+          // Central hall with patient rooms along both sides.
+          V(0.42, 0.08, 0.92, [0.2, 0.5, 0.8]);
+          V(0.58, 0.08, 0.92, [0.2, 0.5, 0.8]);
+
+          H(0.33, 0.08, 0.42, [0.22]);
+          H(0.66, 0.08, 0.42, [0.22]);
+
+          H(0.33, 0.58, 0.92, [0.78]);
+          H(0.66, 0.58, 0.92, [0.78]);
+          break;
+
+        case 2:
+          // Triage in front, treatment rooms in the center and surgery rear.
+          H(0.32, 0.08, 0.92, [0.3, 0.7]);
+          H(0.68, 0.08, 0.92, [0.3, 0.7]);
+          V(0.5, 0.32, 0.92, [0.5, 0.82]);
+          break;
+
+        case 3:
+          // Clinic with a central nurses' station.
+          V(0.32, 0.08, 0.92, [0.25, 0.72]);
+          V(0.68, 0.08, 0.92, [0.25, 0.72]);
+          H(0.5, 0.08, 0.92, [0.18, 0.5, 0.82]);
+          H(0.25, 0.32, 0.68, [0.5]);
+          break;
+
+        case 4:
+          // Dense medical ward grid.
+          H(0.25, 0.08, 0.92, [0.35, 0.65]);
+          H(0.5, 0.08, 0.92, [0.35, 0.65]);
+          H(0.75, 0.08, 0.92, [0.35, 0.65]);
+
+          V(0.5, 0.08, 0.92, [
+            0.14,
+            0.38,
+            0.62,
+            0.86
+          ]);
+          break;
+      }
+    }
+
+    /*
+     * SHERIFF STATION INTERIORS
+     */
+    else if (type === "sheriff") {
+      switch (interiorVariant) {
+        case 0:
+          // Public lobby, administration and holding cells.
+          H(0.32, 0.08, 0.92, [0.5]);
+          V(0.6, 0.32, 0.92, [0.55]);
+          H(0.68, 0.08, 0.6, [0.3]);
+          break;
+
+        case 1:
+          // County office with a long internal corridor.
+          V(0.38, 0.08, 0.92, [0.25, 0.65]);
+          H(0.42, 0.38, 0.92, [0.66]);
+          H(0.72, 0.38, 0.92, [0.66]);
+          break;
+
+        case 2:
+          // Evidence room, armory and rear offices.
+          H(0.4, 0.08, 0.92, [0.5]);
+          V(0.35, 0.4, 0.92, [0.65]);
+          V(0.68, 0.4, 0.92, [0.65]);
+          break;
+
+        case 3:
+          // Open squad room with rear holding area.
+          H(0.68, 0.08, 0.92, [0.35, 0.7]);
+          V(0.45, 0.08, 0.68, [0.36]);
+          V(0.75, 0.08, 0.68, [0.36]);
+          break;
+
+        case 4:
+          // Central hallway and four secured departments.
+          V(0.5, 0.08, 0.92, [0.22, 0.52, 0.8]);
+          H(0.35, 0.08, 0.92, [0.25, 0.75]);
+          H(0.7, 0.08, 0.92, [0.25, 0.75]);
+          break;
+      }
+    }
+
+    /*
+     * PRISON INTERIORS
+     */
+    else if (type === "prison") {
+      switch (interiorVariant) {
+        case 0:
+          // Central corridor with cell rows on both sides.
+          V(0.5, 0.08, 0.92, [0.18, 0.5, 0.82]);
+
+          H(0.28, 0.08, 0.47, [0.25]);
+          H(0.28, 0.53, 0.92, [0.75]);
+
+          H(0.5, 0.08, 0.47, [0.25]);
+          H(0.5, 0.53, 0.92, [0.75]);
+
+          H(0.72, 0.08, 0.47, [0.25]);
+          H(0.72, 0.53, 0.92, [0.75]);
+          break;
+
+        case 1:
+          // Ring of cells surrounding a courtyard or common room.
+          H(0.3, 0.08, 0.92, [0.3, 0.7]);
+          H(0.7, 0.08, 0.92, [0.3, 0.7]);
+          V(0.3, 0.08, 0.92, [0.3, 0.7]);
+          V(0.7, 0.08, 0.92, [0.3, 0.7]);
+          break;
+
+        case 2:
+          // Intake lobby with two secured holding wings.
+          H(0.28, 0.08, 0.92, [0.5]);
+          V(0.5, 0.28, 0.92, [0.48, 0.78]);
+          H(0.6, 0.08, 0.47, [0.25]);
+          H(0.6, 0.53, 0.92, [0.75]);
+          break;
+
+        case 3:
+          // H-shaped high-security cellblock.
+          V(0.33, 0.08, 0.92, [0.22, 0.5, 0.78]);
+          V(0.67, 0.08, 0.92, [0.22, 0.5, 0.78]);
+          H(0.5, 0.08, 0.92, [0.17, 0.5, 0.83]);
+          break;
+
+        case 4:
+          // Dormitory, cafeteria and segregation wing.
+          H(0.4, 0.08, 0.92, [0.3, 0.68]);
+          H(0.72, 0.08, 0.92, [0.3, 0.68]);
+          V(0.35, 0.4, 0.92, [0.56, 0.82]);
+          V(0.65, 0.4, 0.92, [0.56, 0.82]);
+          break;
+      }
+
+      // Convert every prison interior door into a stronger barred door.
+      for (const door of building.doors) {
+        if (door.exterior) continue;
+
+        door.style = "barred";
+        door.maxHp = 190;
+        door.hp = 190;
+      }
+    }
+
+    /*
+     * WAREHOUSE INTERIORS
+     */
+    else if (type === "warehouse") {
+      switch (interiorVariant) {
+        case 0:
+          // Small office inside a mostly open warehouse.
+          V(0.25, 0.08, 0.35, [0.22]);
+          H(0.35, 0.08, 0.25, [0.16]);
+          break;
+
+        case 1:
+          // Front loading area with dispatch office.
+          H(0.28, 0.08, 0.92, [0.35, 0.7]);
+          V(0.72, 0.08, 0.28, [0.16]);
+          break;
+
+        case 2:
+          // Workshop wing and divided storage rooms.
+          V(0.3, 0.08, 0.92, [0.3, 0.72]);
+          H(0.5, 0.08, 0.3, [0.18]);
+          H(0.72, 0.3, 0.92, [0.65]);
+          break;
+
+        case 3:
+          // Distribution floor with rear sorting rooms.
+          H(0.65, 0.08, 0.92, [0.35, 0.65]);
+          V(0.5, 0.65, 0.92, [0.8]);
+          break;
+
+        case 4:
+          // Large storage floor and side cold-storage rooms.
+          V(0.75, 0.08, 0.92, [0.25, 0.55, 0.82]);
+          H(0.35, 0.75, 0.92, [0.84]);
+          H(0.7, 0.75, 0.92, [0.84]);
+          break;
+      }
+    }
+
+    return interiorVariant;
+  }
+
+  function furnishKinds(type, interiorVariant = 0) {
+    const interiors = {
+      house: [
+        ["fridge", "cupboard", "table", "dresser", "cupboard"],
+        ["dresser", "dresser", "cupboard", "table", "fridge"],
+        ["fridge", "cupboard", "table", "table", "dresser"],
+        ["fridge", "dresser", "dresser", "cupboard", "table"],
+        ["cupboard", "table", "fridge", "dresser", "cupboard"]
+      ],
+
+      grocery: [
+        ["checkout", "shelf", "shelf", "freezer", "counter"],
+        ["checkout", "shelf", "counter", "shelf", "freezer"],
+        ["counter", "freezer", "shelf", "shelf", "checkout"],
+        ["checkout", "counter", "shelf", "freezer", "shelf"],
+        ["checkout", "shelf", "shelf", "shelf", "freezer", "counter"]
+      ],
+
+      hospital: [
+        ["reception", "hospital_bed", "medical_cabinet", "gurney", "supply_cart"],
+        ["hospital_bed", "medical_cabinet", "hospital_bed", "supply_cart", "gurney"],
+        ["reception", "gurney", "medical_cabinet", "hospital_bed", "supply_cart"],
+        ["reception", "medical_cabinet", "supply_cart", "hospital_bed", "gurney"],
+        ["hospital_bed", "hospital_bed", "gurney", "medical_cabinet", "supply_cart"]
+      ],
+
+      sheriff: [
+        ["desk", "locker", "evidence_cabinet", "gun_locker", "desk"],
+        ["desk", "desk", "locker", "evidence_cabinet", "gun_locker"],
+        ["evidence_cabinet", "gun_locker", "locker", "desk", "desk"],
+        ["desk", "locker", "desk", "gun_locker", "evidence_cabinet"],
+        ["locker", "desk", "evidence_cabinet", "desk", "gun_locker"]
+      ],
+
+      prison: [
+        ["cell_locker", "cell_locker", "guard_desk", "canteen_table", "crate"],
+        ["cell_locker", "canteen_table", "guard_desk", "medical_cabinet", "crate"],
+        ["guard_desk", "cell_locker", "locker", "medical_cabinet", "crate"],
+        ["cell_locker", "cell_locker", "gun_locker", "guard_desk", "crate"],
+        ["canteen_table", "cell_locker", "medical_cabinet", "guard_desk", "crate"]
+      ],
+
+      warehouse: [
+        ["crate", "crate", "workbench", "tool_cabinet"],
+        ["crate", "tool_cabinet", "crate", "workbench"],
+        ["workbench", "tool_cabinet", "crate", "crate"],
+        ["crate", "crate", "crate", "tool_cabinet", "workbench"],
+        ["crate", "tool_cabinet", "crate", "crate", "workbench"]
+      ]
+    };
+
+    const variants = interiors[type] || interiors.house;
+    return variants[interiorVariant % variants.length];
   }
   function addBuilding(world, rng, rect, type) {
     const id = world.activeChunkKey ? `${world.activeChunkKey}-b${world.activeChunkBuildingIndex++}` : `b${world.buildings.length}`;
