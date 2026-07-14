@@ -1,5 +1,5 @@
 (() => {
-  // hollow-county/src/data.js
+  // src/data.js
   var ITEMS = Object.freeze({
     canned_beans: { name: "Canned beans", icon: "CAN", kind: "food", hunger: 32, weight: 0.5, maxStack: 4, description: "Heavy, safe, and still sealed." },
     crackers: { name: "Crackers", icon: "BOX", kind: "food", hunger: 18, thirst: -3, weight: 0.2, maxStack: 6, description: "Dry food that keeps for years." },
@@ -173,7 +173,7 @@
     return (ITEMS[entry.id]?.weight ?? 0) * entry.qty;
   }
 
-  // hollow-county/src/input.js
+  // src/input.js
   var InputController = class {
     constructor(canvas, joystick, joystickThumb, onAction) {
       this.canvas = canvas;
@@ -288,7 +288,7 @@
     }
   };
 
-  // hollow-county/src/rng.js
+  // src/rng.js
   function xmur3(text) {
     let h = 1779033703 ^ text.length;
     for (let i = 0; i < text.length; i += 1) {
@@ -344,18 +344,19 @@
     return `${places[Math.floor(Math.random() * places.length)]}-${suffix}`;
   }
 
-  // hollow-county/src/world.js
+  // src/world.js
   var TILE = Object.freeze({
     GRASS: 0,
     ROAD: 1,
     FLOOR: 2,
     WALL: 3,
     WATER: 4,
-    TREE: 5
+    TREE: 5,
+    SIDEWALK: 6
   });
-  var CHUNK_SIZE = 48;
+  var CHUNK_SIZE = 96;
   var DEFAULT_WORLD_SIZE = CHUNK_SIZE * 96;
-  var ROAD_SPACING = 24;
+  var ROAD_SPACING = 48;
   var TILE_SIZE = 32;
   function tileIndex(world, x, y) {
     return y * world.width + x;
@@ -411,7 +412,9 @@
     return (axis === "x" ? world.roadX : world.roadY).includes(value);
   }
   function proceduralBaseTile(world, x, y) {
-    if (gridDistance(x) <= 1 || gridDistance(y) <= 1) return TILE.ROAD;
+    const streetDistance = Math.min(gridDistance(x), gridDistance(y));
+    if (streetDistance <= 2) return TILE.ROAD;
+    if (streetDistance === 3) return TILE.SIDEWALK;
     const basinX = Math.floor(x / 11);
     const basinY = Math.floor(y / 11);
     const basin = hash2D(basinX, basinY, `${world.seed}:WATER`);
@@ -431,16 +434,32 @@
   function markRoads(world, roadX, roadY) {
     for (const x of roadX) {
       for (let y = 0; y < world.height; y += 1) {
-        setTile(world, x - 1, y, TILE.ROAD);
-        setTile(world, x, y, TILE.ROAD);
-        setTile(world, x + 1, y, TILE.ROAD);
+        setTile(world, x - 3, y, TILE.SIDEWALK);
+        setTile(world, x + 3, y, TILE.SIDEWALK);
       }
     }
     for (const y of roadY) {
       for (let x = 0; x < world.width; x += 1) {
+        setTile(world, x, y - 3, TILE.SIDEWALK);
+        setTile(world, x, y + 3, TILE.SIDEWALK);
+      }
+    }
+    for (const x of roadX) {
+      for (let y = 0; y < world.height; y += 1) {
+        setTile(world, x - 2, y, TILE.ROAD);
+        setTile(world, x - 1, y, TILE.ROAD);
+        setTile(world, x, y, TILE.ROAD);
+        setTile(world, x + 1, y, TILE.ROAD);
+        setTile(world, x + 2, y, TILE.ROAD);
+      }
+    }
+    for (const y of roadY) {
+      for (let x = 0; x < world.width; x += 1) {
+        setTile(world, x, y - 2, TILE.ROAD);
         setTile(world, x, y - 1, TILE.ROAD);
         setTile(world, x, y, TILE.ROAD);
         setTile(world, x, y + 1, TILE.ROAD);
+        setTile(world, x, y + 2, TILE.ROAD);
       }
     }
   }
@@ -458,12 +477,12 @@
   }
   function chooseBuildingType(rng, distanceFromCenter, rect) {
     const roll = rng.float();
-    const major = rect.w >= 10 && rect.h >= 9;
-    if (major && roll < 0.07) return "prison";
-    if (major && roll < 0.18) return "hospital";
-    if (rect.w >= 9 && rect.h >= 8 && roll < 0.29) return "sheriff";
-    if (rect.w >= 8 && rect.h >= 7 && roll < 0.48) return "grocery";
-    if (roll < 0.67) return "warehouse";
+    const major = rect.w >= 12 && rect.h >= 11;
+    if (major && roll < 0.045) return "prison";
+    if (major && roll < 0.12) return "hospital";
+    if (rect.w >= 10 && rect.h >= 9 && roll < 0.2) return "sheriff";
+    if (rect.w >= 9 && rect.h >= 8 && roll < 0.33) return "grocery";
+    if (roll < 0.46) return "warehouse";
     return "house";
   }
   function weightedLoot(rng, tableName) {
@@ -489,16 +508,25 @@
     return entries;
   }
   var BUILDING_VARIANTS = Object.freeze({
-    house: ["bungalow", "l_house", "ranch"],
-    grocery: ["corner_market", "loading_notch", "supermarket"],
-    hospital: ["cross_wing", "emergency_wing"],
-    sheriff: ["station_wings", "brick_station"],
-    prison: ["courtyard_block", "fortified_block"],
-    warehouse: ["loading_bay", "workshop"]
+    house: ["bungalow", "l_house", "ranch", "farmhouse", "duplex", "victorian"],
+    grocery: ["corner_market", "loading_notch", "supermarket", "strip_market"],
+    hospital: ["cross_wing", "emergency_wing", "clinic_campus"],
+    sheriff: ["station_wings", "brick_station", "county_office"],
+    prison: ["courtyard_block", "fortified_block", "detention_wing"],
+    warehouse: ["loading_bay", "workshop", "distribution_hall"]
   });
   function footprintIncludes(type, variant, lx, ly, w, h) {
     if (type === "house" && variant === "l_house") {
       return !(lx >= Math.max(3, Math.floor(w * 0.62)) && ly >= Math.max(3, Math.floor(h * 0.58)));
+    }
+    if (type === "house" && variant === "victorian" && w >= 11 && h >= 11) {
+      const cut = Math.max(2, Math.floor(Math.min(w, h) * 0.16));
+      const northWest = lx < cut && ly < cut;
+      const southEast = lx >= w - cut && ly >= h - cut;
+      return !northWest && !southEast;
+    }
+    if (type === "house" && variant === "duplex" && w >= 12) {
+      return !(ly === 0 && (lx < 2 || lx >= w - 2));
     }
     if (type === "grocery" && variant === "loading_notch") {
       return !(lx >= w - 2 && ly >= h - 2);
@@ -590,16 +618,31 @@
     const id = world.activeChunkKey ? `${world.activeChunkKey}-b${world.activeChunkBuildingIndex++}` : `b${world.buildings.length}`;
     const variants = BUILDING_VARIANTS[type] || ["standard"];
     const variant = rng.pick(variants);
+    let floorCount = 1;
+    if (type === "house") {
+      const chunked = Boolean(world.activeChunkKey);
+      const counterKey = chunked ? "activeChunkHouseIndex" : "finiteHouseGenerationIndex";
+      const ordinal = world[counterKey] ?? 0;
+      world[counterKey] = ordinal + 1;
+      const [chunkX, chunkY] = chunked ? world.activeChunkKey.split(",").map(Number) : [0, 0];
+      const offset = Math.floor(hash2D(chunkX, chunkY, `${world.seed}:STORY-OFFSET`) * 5);
+      if ((ordinal + offset) % 5 < 2) floorCount = 2;
+    }
+    const storyStyle = floorCount === 2 ? rng.pick(["dormer", "gable", "flat_addition", "mansard"]) : "single";
     const building = {
       id,
       chunkKey: world.activeChunkKey || null,
       type,
       variant,
-      name: BUILDING_TYPES[type].name,
+      name: floorCount === 2 ? "Two-story Residence" : BUILDING_TYPES[type].name,
+      floorCount,
+      storyStyle,
+      generationScale: 3,
       ...rect,
       doors: [],
       windows: [],
       barTiles: [],
+      stairTile: null,
       cells: [],
       cellSet: /* @__PURE__ */ new Set()
     };
@@ -650,6 +693,14 @@
     if (type === "house") {
       addPartition(world, building, "vertical", midX, y1, y2, [midY]);
       if (rect.h >= 9) addPartition(world, building, "horizontal", rect.y + Math.floor(rect.h * 0.62), x1, midX - 1, [rect.x + 2]);
+      if (rect.w >= 16) {
+        const wingX = rect.x + Math.floor(rect.w * 0.72);
+        addPartition(world, building, "vertical", wingX, y1, y2, [rect.y + Math.floor(rect.h * 0.36)]);
+      }
+      if (rect.h >= 15) {
+        const hallY = rect.y + Math.floor(rect.h * 0.38);
+        addPartition(world, building, "horizontal", hallY, midX + 1, x2, [rect.x + Math.floor(rect.w * 0.76)]);
+      }
     } else if (type === "grocery") {
       addPartition(world, building, "horizontal", rect.y + rect.h - 3, x1, x2, [midX]);
     } else if (type === "hospital") {
@@ -677,6 +728,18 @@
     } else if (type === "warehouse") {
       addPartition(world, building, "vertical", rect.x + Math.min(3, rect.w - 3), y1, rect.y + Math.min(4, rect.h - 2), [rect.y + 2]);
     }
+    if (floorCount === 2) {
+      const exteriorDoorKeys = new Set(building.doors.filter((door) => door.exterior).map((door) => `${door.x},${door.y}`));
+      const stairCandidates = building.cells.filter((cell) => {
+        if (getTile(world, cell.x, cell.y) !== TILE.FLOOR || exteriorDoorKeys.has(`${cell.x},${cell.y}`)) return false;
+        if (cell.x <= rect.x + 1 || cell.x >= rect.x + rect.w - 2 || cell.y <= rect.y + 1 || cell.y >= rect.y + rect.h - 2) return false;
+        return building.doors.every((door) => Math.abs(door.x - cell.x) + Math.abs(door.y - cell.y) >= 3);
+      });
+      if (stairCandidates.length) {
+        const picked = rng.pick(stairCandidates);
+        building.stairTile = { x: picked.x, y: picked.y, side: rng.pick(["north", "south", "east", "west"]) };
+      }
+    }
     const exteriorWalls = Object.values(boundaryBySide).flat().filter((cell) => getTile(world, cell.x, cell.y) === TILE.WALL);
     const desiredWindows = type === "prison" ? 4 : type === "hospital" ? 10 : type === "grocery" ? 8 : Math.max(3, Math.floor((rect.w + rect.h) / 4));
     const windowPool = rng.shuffle(exteriorWalls.filter((cell) => !building.signTile || cell.x !== building.signTile.x || cell.y !== building.signTile.y));
@@ -686,11 +749,16 @@
     const doorKeys = new Set(building.doors.map((door) => `${door.x},${door.y}`));
     const edgeFloors = building.cells.filter((cell) => {
       if (getTile(world, cell.x, cell.y) !== TILE.FLOOR || doorKeys.has(`${cell.x},${cell.y}`)) return false;
+      if (building.stairTile && cell.x === building.stairTile.x && cell.y === building.stairTile.y) return false;
       return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => getTile(world, cell.x + dx, cell.y + dy) === TILE.WALL);
     });
-    const allFloors = building.cells.filter((cell) => getTile(world, cell.x, cell.y) === TILE.FLOOR && !doorKeys.has(`${cell.x},${cell.y}`));
+    const allFloors = building.cells.filter((cell) => {
+      if (getTile(world, cell.x, cell.y) !== TILE.FLOOR || doorKeys.has(`${cell.x},${cell.y}`)) return false;
+      return !building.stairTile || cell.x !== building.stairTile.x || cell.y !== building.stairTile.y;
+    });
     const furniturePool = rng.shuffle(edgeFloors.length >= 3 ? edgeFloors : allFloors);
-    const countRange = type === "hospital" ? [7, 10] : type === "grocery" ? [6, 9] : type === "prison" ? [7, 11] : type === "sheriff" ? [5, 8] : type === "warehouse" ? [4, 7] : [2, 4];
+    const areaTier = Math.max(0, Math.min(4, Math.floor(building.cells.length / 220)));
+    const countRange = type === "hospital" ? [9 + areaTier, 13 + areaTier * 2] : type === "grocery" ? [8 + areaTier, 12 + areaTier * 2] : type === "prison" ? [9 + areaTier, 14 + areaTier * 2] : type === "sheriff" ? [7 + areaTier, 11 + areaTier * 2] : type === "warehouse" ? [6 + areaTier, 10 + areaTier * 2] : floorCount === 2 ? [5 + areaTier, 8 + areaTier * 2] : [4 + areaTier, 7 + areaTier * 2];
     const containerCount = Math.min(furniturePool.length, rng.int(countRange[0], countRange[1]));
     const kinds = furnishKinds(type);
     const placed = [];
@@ -722,29 +790,53 @@
     const centerY = world.height / 2;
     for (let yi = 0; yi < roadY.length - 1; yi += 1) {
       for (let xi = 0; xi < roadX.length - 1; xi += 1) {
-        const left = roadX[xi] + 3;
-        const right = roadX[xi + 1] - 3;
-        const top = roadY[yi] + 3;
-        const bottom = roadY[yi + 1] - 3;
+        const streetSetback = world.chunked ? 5 : 3;
+        const left = roadX[xi] + streetSetback;
+        const right = roadX[xi + 1] - streetSetback;
+        const top = roadY[yi] + streetSetback;
+        const bottom = roadY[yi + 1] - streetSetback;
         const blockW = right - left;
         const blockH = bottom - top;
         if (blockW < 7 || blockH < 7) continue;
         const dx = (left + blockW / 2 - centerX) / centerX;
         const dy = (top + blockH / 2 - centerY) / centerY;
         const distance2 = Math.min(1, Math.hypot(dx, dy));
-        const density = 0.86 - distance2 * 0.35 + hash2D(xi, yi, world.seed) * 0.18;
+        const density = 0.95 - distance2 * 0.16 + hash2D(left, top, `${world.seed}:DENSITY`) * 0.13;
         if (!rng.chance(density)) continue;
-        const split = blockW >= 13 && rng.chance(0.42);
-        const lots = split ? [
-          { x: left, y: top, w: Math.floor(blockW / 2) - 1, h: blockH },
-          { x: left + Math.floor(blockW / 2) + 1, y: top, w: blockW - Math.floor(blockW / 2) - 1, h: blockH }
-        ] : [{ x: left, y: top, w: blockW, h: blockH }];
+        const lots = [];
+        const largeBlock = blockW >= 30 || blockH >= 30;
+        const splitAxis = blockW >= blockH ? "vertical" : "horizontal";
+        const layoutRoll = rng.float();
+        const lotCount = largeBlock ? layoutRoll < 0.68 ? 2 : layoutRoll < 0.9 ? 3 : 1 : blockW >= 13 && rng.chance(0.56) ? 2 : 1;
+        const alley = largeBlock ? 2 : 1;
+        if (lotCount === 1) {
+          lots.push({ x: left, y: top, w: blockW, h: blockH });
+        } else if (splitAxis === "vertical") {
+          const usable = blockW - alley * (lotCount - 1);
+          let cursor = left;
+          for (let index = 0; index < lotCount; index += 1) {
+            const evenWidth = index === lotCount - 1 ? left + blockW - cursor : Math.floor(usable / lotCount) + (index < usable % lotCount ? 1 : 0);
+            lots.push({ x: cursor, y: top, w: Math.max(1, evenWidth), h: blockH });
+            cursor += evenWidth + alley;
+          }
+        } else {
+          const usable = blockH - alley * (lotCount - 1);
+          let cursor = top;
+          for (let index = 0; index < lotCount; index += 1) {
+            const evenHeight = index === lotCount - 1 ? top + blockH - cursor : Math.floor(usable / lotCount) + (index < usable % lotCount ? 1 : 0);
+            lots.push({ x: left, y: cursor, w: blockW, h: Math.max(1, evenHeight) });
+            cursor += evenHeight + alley;
+          }
+        }
         for (const lot of lots) {
           if (lot.w < 6 || lot.h < 6) continue;
-          const marginX = rng.int(0, Math.min(2, lot.w - 6));
-          const marginY = rng.int(0, Math.min(2, lot.h - 6));
-          const w = Math.max(6, lot.w - marginX - rng.int(0, 1));
-          const h = Math.max(6, lot.h - marginY - rng.int(0, 1));
+          const roomyLot = lot.w >= 14 && lot.h >= 14;
+          const marginX = rng.int(roomyLot ? 1 : 0, Math.min(roomyLot ? 3 : 2, lot.w - 6));
+          const marginY = rng.int(roomyLot ? 1 : 0, Math.min(roomyLot ? 3 : 2, lot.h - 6));
+          const farMarginX = rng.int(roomyLot ? 2 : 0, Math.min(roomyLot ? 4 : 1, lot.w - marginX - 6));
+          const farMarginY = rng.int(roomyLot ? 2 : 0, Math.min(roomyLot ? 4 : 1, lot.h - marginY - 6));
+          const w = Math.max(6, lot.w - marginX - farMarginX);
+          const h = Math.max(6, lot.h - marginY - farMarginY);
           const rect = { x: lot.x + marginX, y: lot.y + marginY, w, h };
           addBuilding(world, rng, rect, chooseBuildingType(rng, distance2, rect));
         }
@@ -762,26 +854,59 @@
       if (rng.chance(chance)) setTile(world, x, y, TILE.TREE);
     }
   }
+  function vehicleSpec(rng, vertical) {
+    const roll = rng.float();
+    const kind = roll < 0.38 ? "sedan" : roll < 0.59 ? "suv" : roll < 0.76 ? "pickup" : roll < 0.88 ? "van" : roll < 0.95 ? "police" : "ambulance";
+    const dimensions = {
+      sedan: [54, 24],
+      suv: [59, 27],
+      pickup: [63, 26],
+      van: [65, 29],
+      police: [57, 25],
+      ambulance: [70, 31]
+    }[kind];
+    const palettes = {
+      sedan: ["#713d37", "#3e5662", "#696451", "#3c4243", "#76704b"],
+      suv: ["#37484b", "#4d5147", "#5e493d", "#30383b"],
+      pickup: ["#6a4538", "#41545a", "#68604b", "#463d35"],
+      van: ["#6b6b61", "#4b5658", "#615348", "#74705f"],
+      police: ["#d4d8d3"],
+      ambulance: ["#deded7"]
+    }[kind];
+    const [length, bodyWidth] = dimensions;
+    return {
+      kind,
+      w: vertical ? bodyWidth : length,
+      h: vertical ? length : bodyWidth,
+      color: rng.pick(palettes),
+      damageVariant: rng.int(0, 3)
+    };
+  }
+  function vehicleOverlaps(world, x, y, w, h) {
+    return world.cars.some((car) => Math.abs(car.x - x) < (car.w + w) * 0.58 && Math.abs(car.y - y) < (car.h + h) * 0.58);
+  }
   function addCars(world, rng, roadX, roadY) {
     const linearScale = Math.max(1, world.width / 144);
-    const count = rng.int(Math.round(18 * linearScale), Math.round(30 * linearScale));
-    for (let i = 0; i < count; i += 1) {
+    const count = rng.int(Math.round(28 * linearScale), Math.round(46 * linearScale));
+    for (let i = 0, attempts = 0; i < count && attempts < count * 6; attempts += 1) {
       const vertical = rng.chance(0.5);
       const tx = vertical ? rng.pick(roadX) : rng.int(3, world.width - 4);
       const ty = vertical ? rng.int(3, world.height - 4) : rng.pick(roadY);
       if (getTile(world, tx, ty) !== TILE.ROAD) continue;
-      const width = vertical ? 24 : 52;
-      const height = vertical ? 52 : 24;
+      const vehicle = vehicleSpec(rng, vertical);
+      const laneOffset = rng.pick([-1, 1]) * world.tileSize * 0.86;
+      const x = (tx + 0.5) * world.tileSize + (vertical ? laneOffset : 0);
+      const y = (ty + 0.5) * world.tileSize + (vertical ? 0 : laneOffset);
+      if (vehicleOverlaps(world, x, y, vehicle.w, vehicle.h)) continue;
       world.cars.push({
         id: `car${world.cars.length}`,
-        x: (tx + 0.5) * world.tileSize,
-        y: (ty + 0.5) * world.tileSize,
-        w: width,
-        h: height,
-        color: rng.pick(["#6d3732", "#374b55", "#5d5a4b", "#303536", "#6b6748"]),
+        x,
+        y,
+        ...vehicle,
         searched: false,
         loot: createLoot(rng, "car", 0, 3)
       });
+      i += 1;
     }
   }
   function findSpawn(world) {
@@ -887,6 +1012,7 @@
     world.roadY = roadPositions(rng, safeSize);
     markRoads(world, world.roadX, world.roadY);
     generateBlocks(world, rng, world.roadX, world.roadY);
+    delete world.finiteHouseGenerationIndex;
     scatterNature(world, rng);
     addCars(world, rng, world.roadX, world.roadY);
     world.spawn = findSpawn(world);
@@ -929,27 +1055,31 @@
     for (const spawn of chunk.survivorSpawns) Object.assign(spawn, survivors.get(spawn.id) || {});
   }
   function addChunkCars(world, chunk, rng) {
-    const count = rng.int(2, 5);
+    const count = rng.int(5, 9);
     const x0 = chunk.cx * world.chunkSize;
     const y0 = chunk.cy * world.chunkSize;
-    for (let i = 0; i < count; i += 1) {
+    for (let i = 0, attempts = 0; i < count && attempts < count * 7; attempts += 1) {
       const vertical = rng.chance(0.5);
       const localRoad = rng.pick([0, ROAD_SPACING]);
       const tx = vertical ? x0 + localRoad : x0 + rng.int(3, world.chunkSize - 4);
       const ty = vertical ? y0 + rng.int(3, world.chunkSize - 4) : y0 + localRoad;
       if (!inBounds(world, tx, ty) || getTile(world, tx, ty) !== TILE.ROAD) continue;
+      const vehicle = vehicleSpec(rng, vertical);
+      const laneOffset = rng.pick([-1, 1]) * world.tileSize * 0.86;
+      const x = (tx + 0.5) * world.tileSize + (vertical ? laneOffset : 0);
+      const y = (ty + 0.5) * world.tileSize + (vertical ? 0 : laneOffset);
+      if (vehicleOverlaps(world, x, y, vehicle.w, vehicle.h)) continue;
       const car = {
         id: `${chunk.key}-car${i}`,
         chunkKey: chunk.key,
-        x: (tx + 0.5) * world.tileSize,
-        y: (ty + 0.5) * world.tileSize,
-        w: vertical ? 24 : 52,
-        h: vertical ? 52 : 24,
-        color: rng.pick(["#6d3732", "#374b55", "#5d5a4b", "#303536", "#6b6748", "#4d425c"]),
+        x,
+        y,
+        ...vehicle,
         searched: false,
         loot: createLoot(rng, "car", 0, 3)
       };
       world.cars.push(car);
+      i += 1;
     }
   }
   function addChunkZombies(world, chunk, rng) {
@@ -1030,6 +1160,7 @@
     const rng = new RNG(`${world.seed}:CHUNK:${key2}`);
     world.activeChunkKey = key2;
     world.activeChunkBuildingIndex = 0;
+    world.activeChunkHouseIndex = 0;
     const beforeBuildings = world.buildings.length;
     const beforeContainers = world.containers.length;
     const beforeCars = world.cars.length;
@@ -1049,6 +1180,7 @@
     restoreChunkState(world, chunk);
     delete world.activeChunkKey;
     delete world.activeChunkBuildingIndex;
+    delete world.activeChunkHouseIndex;
     return chunk;
   }
   function unloadChunk(world, key2) {
@@ -1098,7 +1230,7 @@
   function createChunkedWorld(seed) {
     const rng = new RNG(seed);
     const world = {
-      version: 4,
+      version: 5,
       seed: rng.seed,
       width: DEFAULT_WORLD_SIZE,
       height: DEFAULT_WORLD_SIZE,
@@ -1133,7 +1265,7 @@
     return createChunkedWorld(seed);
   }
 
-  // hollow-county/src/pathfinding.js
+  // src/pathfinding.js
   var CARDINAL = [
     [1, 0],
     [-1, 0],
@@ -1246,9 +1378,9 @@
     return true;
   }
 
-  // hollow-county/src/game.js
+  // src/game.js
   var SAVE_KEY = "hollow-county-save-v1";
-  var SAVE_VERSION = 4;
+  var SAVE_VERSION = 5;
   var CAMERA_ZOOM = 1.5;
   var FISTS = { name: "Bare hands", mode: "melee", damage: 7, range: 40, cooldown: 0.48, noise: 25, staminaCost: 9 };
   var STREET_NAMES = ["Mercy", "Harrow", "Cinder", "Morrow", "Stillwater", "Rook", "Lantern", "Graves", "Hollow", "Ash"];
@@ -1347,6 +1479,14 @@
     ctx.lineTo(x, y + r);
     ctx.quadraticCurveTo(x, y, x + r, y);
     ctx.closePath();
+  }
+  function roadGridDistance(value) {
+    const offset = (value % ROAD_SPACING + ROAD_SPACING) % ROAD_SPACING;
+    return Math.min(offset, ROAD_SPACING - offset);
+  }
+  function positiveRoadSide(value) {
+    const offset = (value % ROAD_SPACING + ROAD_SPACING) % ROAD_SPACING;
+    return offset > 0 && offset <= ROAD_SPACING / 2;
   }
   function drawSmoothLimb(ctx, x1, y1, x2, y2, width, color, outline = "#202621") {
     ctx.lineCap = "round";
@@ -2140,27 +2280,27 @@
     }
     updatePlayer(dt) {
       const player = this.player;
-      player.animTime ?? (player.animTime = 0);
-      player.moveBlend ?? (player.moveBlend = 0);
-      player.velocityX ?? (player.velocityX = 0);
-      player.velocityY ?? (player.velocityY = 0);
-      player.actualSpeed ?? (player.actualSpeed = 0);
-      player.renderFacingX ?? (player.renderFacingX = player.facingX ?? 1);
-      player.renderFacingY ?? (player.renderFacingY = player.facingY ?? 0);
-      player.turnLean ?? (player.turnLean = 0);
+      player.animTime ??= 0;
+      player.moveBlend ??= 0;
+      player.velocityX ??= 0;
+      player.velocityY ??= 0;
+      player.actualSpeed ??= 0;
+      player.renderFacingX ??= player.facingX ?? 1;
+      player.renderFacingY ??= player.facingY ?? 0;
+      player.turnLean ??= 0;
       player.radius = 8;
-      player.exhausted ?? (player.exhausted = false);
-      player.exhaustionTime ?? (player.exhaustionTime = 0);
-      player.actionAnim ?? (player.actionAnim = 0);
-      player.actionDuration ?? (player.actionDuration = 0);
-      player.knockbackX ?? (player.knockbackX = 0);
-      player.knockbackY ?? (player.knockbackY = 0);
-      player.knockbackTime ?? (player.knockbackTime = 0);
-      player.knockbackDuration ?? (player.knockbackDuration = 0.32);
-      player.attackAnim ?? (player.attackAnim = 0);
-      player.attackDuration ?? (player.attackDuration = 0.28);
-      player.attackMode ?? (player.attackMode = "melee");
-      player.hurtAnim ?? (player.hurtAnim = 0);
+      player.exhausted ??= false;
+      player.exhaustionTime ??= 0;
+      player.actionAnim ??= 0;
+      player.actionDuration ??= 0;
+      player.knockbackX ??= 0;
+      player.knockbackY ??= 0;
+      player.knockbackTime ??= 0;
+      player.knockbackDuration ??= 0.32;
+      player.attackAnim ??= 0;
+      player.attackDuration ??= 0.28;
+      player.attackMode ??= "melee";
+      player.hurtAnim ??= 0;
       player.attackCooldown = Math.max(0, player.attackCooldown - dt);
       player.hurtCooldown = Math.max(0, player.hurtCooldown - dt);
       player.noiseCooldown = Math.max(0, player.noiseCooldown - dt);
@@ -2459,8 +2599,8 @@
         zombie.deathAnim = Math.max(0, (zombie.deathAnim ?? 0) - dt * 2.5);
         if (zombie.dead) continue;
         const profile = ZOMBIE_ARCHETYPES[zombie.archetype] || ZOMBIE_ARCHETYPES.normal;
-        zombie.animTime ?? (zombie.animTime = 0);
-        zombie.moveBlend ?? (zombie.moveBlend = 0);
+        zombie.animTime ??= 0;
+        zombie.moveBlend ??= 0;
         zombie.attackCooldown = Math.max(0, zombie.attackCooldown - dt);
         zombie.bashCooldown = Math.max(0, (zombie.bashCooldown || 0) - dt);
         zombie.howlCooldown = Math.max(0, (zombie.howlCooldown || 0) - dt);
@@ -3670,11 +3810,11 @@
       } catch {
         save = null;
       }
-      if (!save || ![1, 2, 3, SAVE_VERSION].includes(save.version)) {
+      if (!save || ![1, 2, 3, 4, SAVE_VERSION].includes(save.version)) {
         this.toastMenu("The save could not be loaded.");
         return;
       }
-      const migratingChunkedCounty = save.version < 3 || !save.chunked;
+      const migratingChunkedCounty = save.version < 5 || !save.chunked;
       this.world = generateWorld(save.seed);
       if (!migratingChunkedCounty) this.world.chunkStates = new Map(save.chunkStates || []);
       this.player = migratingChunkedCounty ? { ...this.makePlayer(), ...save.player || {}, x: this.world.spawn.x, y: this.world.spawn.y } : { ...this.makePlayer(), ...save.player || {} };
@@ -3733,7 +3873,7 @@
         save = null;
       }
       const button = $("#continueBtn");
-      if (!save || ![1, 2, 3, SAVE_VERSION].includes(save.version)) {
+      if (!save || ![1, 2, 3, 4, SAVE_VERSION].includes(save.version)) {
         button.disabled = true;
         $("#saveSummary").textContent = "No living survivor found.";
         return;
@@ -3818,6 +3958,7 @@
         warehouse: ["#5a5248", "#61584c"]
       };
       const palette = palettes[building?.type] || palettes.house;
+      const upperStory = (building?.floorCount || 1) > 1;
       ctx.fillStyle = variation > 0.5 ? palette[1] : palette[0];
       ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
       ctx.fillStyle = "rgba(9,12,10,.16)";
@@ -3830,6 +3971,40 @@
           ctx.moveTo(p.x, p.y + y);
           ctx.lineTo(p.x + TILE_SIZE, p.y + y);
           ctx.stroke();
+        }
+        if (upperStory) {
+          const localX = tx - building.x;
+          const localY = ty - building.y;
+          ctx.fillStyle = variation > 0.5 ? "rgba(72,78,69,.88)" : "rgba(62,68,61,.9)";
+          ctx.fillRect(p.x + 2, p.y + 2, TILE_SIZE - 3, TILE_SIZE - 3);
+          ctx.strokeStyle = "rgba(231,229,204,.13)";
+          ctx.strokeRect(p.x + 2.5, p.y + 2.5, TILE_SIZE - 4, TILE_SIZE - 4);
+          ctx.fillStyle = "rgba(4,7,5,.28)";
+          if (localX >= building.w - 3) ctx.fillRect(p.x + TILE_SIZE - 3, p.y + 3, 4, TILE_SIZE - 1);
+          if (localY >= building.h - 3) ctx.fillRect(p.x + 3, p.y + TILE_SIZE - 3, TILE_SIZE - 1, 4);
+          const roofAxisVertical = building.storyStyle === "gable" || building.h > building.w;
+          ctx.fillStyle = "rgba(222,219,193,.1)";
+          if (roofAxisVertical) ctx.fillRect(p.x + 15, p.y + 2, 2, TILE_SIZE - 4);
+          else ctx.fillRect(p.x + 2, p.y + 15, TILE_SIZE - 4, 2);
+          const feature = hash2D(tx, ty, `${this.world.seed}:UPPER-STORY`);
+          if (feature > 0.82) {
+            ctx.fillStyle = "#202b2c";
+            roundedRectPath(ctx, p.x + 8, p.y + 8, 16, 13, 3);
+            ctx.fill();
+            ctx.fillStyle = "#48666b";
+            ctx.fillRect(p.x + 10, p.y + 10, 12, 8);
+            ctx.fillStyle = "rgba(198,220,207,.28)";
+            ctx.fillRect(p.x + 11, p.y + 11, 3, 6);
+            ctx.strokeStyle = "rgba(220,226,206,.3)";
+            ctx.strokeRect(p.x + 9.5, p.y + 9.5, 13, 9);
+          } else if (feature < 0.055) {
+            ctx.fillStyle = "#302d28";
+            ctx.fillRect(p.x + 11, p.y + 6, 10, 13);
+            ctx.fillStyle = "#746555";
+            ctx.fillRect(p.x + 12, p.y + 5, 8, 3);
+            ctx.fillStyle = "rgba(12,14,12,.45)";
+            ctx.fillRect(p.x + 13, p.y + 9, 6, 7);
+          }
         }
       } else {
         ctx.strokeRect(p.x + 0.5, p.y + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
@@ -3884,25 +4059,86 @@
           ctx.fill();
         }
       } else if (tile === TILE.ROAD) {
-        ctx.fillStyle = variation > 0.58 ? "#343a38" : "#303633";
+        const xRoadDistance = roadGridDistance(tx);
+        const yRoadDistance = roadGridDistance(ty);
+        const verticalRoad = xRoadDistance <= 2;
+        const horizontalRoad = yRoadDistance <= 2;
+        const intersection = verticalRoad && horizontalRoad;
+        ctx.fillStyle = variation > 0.66 ? "#343938" : variation > 0.24 ? "#303533" : "#2c312f";
         ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
-        if ((tx + ty) % 11 === 0) {
-          ctx.strokeStyle = "rgba(10,13,12,.32)";
-          ctx.lineWidth = 1.5;
+        ctx.fillStyle = "rgba(222,226,214,.025)";
+        ctx.fillRect(p.x + 1, p.y + 1, TILE_SIZE - 2, 1);
+        if (variation < 0.12) {
+          ctx.fillStyle = "rgba(11,14,13,.32)";
           ctx.beginPath();
-          ctx.moveTo(p.x + 2, p.y + 7);
-          ctx.lineTo(p.x + 11, p.y + 9);
-          ctx.lineTo(p.x + 16, p.y + 16);
-          ctx.lineTo(p.x + 27, p.y + 18);
+          ctx.ellipse(p.x + 9 + variation * 60, p.y + 19, 6 + variation * 12, 3.5, -0.18, 0, Math.PI * 2);
+          ctx.fill();
+        } else if (variation > 0.72) {
+          ctx.strokeStyle = "rgba(9,12,11,.38)";
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.moveTo(p.x + 2, p.y + 6);
+          ctx.lineTo(p.x + 10, p.y + 9);
+          ctx.lineTo(p.x + 16, p.y + 17);
+          ctx.lineTo(p.x + 28, p.y + 20);
           ctx.stroke();
         }
-        if (isRoadCenter(this.world, "x", tx) && ty % 3 === 0) {
-          ctx.fillStyle = "rgba(197,181,124,.25)";
-          ctx.fillRect(p.x + 15, p.y + 4, 2, 16);
+        if (!intersection && verticalRoad && xRoadDistance === 2) {
+          ctx.fillStyle = "rgba(222,220,194,.12)";
+          ctx.fillRect(p.x + (positiveRoadSide(tx) ? TILE_SIZE - 2 : 0), p.y, 2, TILE_SIZE);
         }
-        if (isRoadCenter(this.world, "y", ty) && tx % 3 === 0) {
-          ctx.fillStyle = "rgba(197,181,124,.25)";
-          ctx.fillRect(p.x + 4, p.y + 15, 16, 2);
+        if (!intersection && horizontalRoad && yRoadDistance === 2) {
+          ctx.fillStyle = "rgba(222,220,194,.12)";
+          ctx.fillRect(p.x, p.y + (positiveRoadSide(ty) ? TILE_SIZE - 2 : 0), TILE_SIZE, 2);
+        }
+        if (!intersection && isRoadCenter(this.world, "x", tx) && (ty % 4 + 4) % 4 < 2) {
+          ctx.fillStyle = "rgba(224,196,104,.57)";
+          ctx.fillRect(p.x + 14, p.y + 3, 2, 20);
+          ctx.fillRect(p.x + 18, p.y + 3, 1, 20);
+        }
+        if (!intersection && isRoadCenter(this.world, "y", ty) && (tx % 4 + 4) % 4 < 2) {
+          ctx.fillStyle = "rgba(224,196,104,.57)";
+          ctx.fillRect(p.x + 3, p.y + 14, 20, 2);
+          ctx.fillRect(p.x + 3, p.y + 18, 20, 1);
+        }
+        const crosswalkOnVertical = verticalRoad && yRoadDistance >= 3 && yRoadDistance <= 6;
+        const crosswalkOnHorizontal = horizontalRoad && xRoadDistance >= 3 && xRoadDistance <= 6;
+        if (crosswalkOnVertical || crosswalkOnHorizontal) {
+          ctx.fillStyle = "rgba(218,220,205,.34)";
+          if (crosswalkOnVertical) {
+            for (let x = 3; x < TILE_SIZE; x += 8) ctx.fillRect(p.x + x, p.y + 4, 4, TILE_SIZE - 8);
+          } else {
+            for (let y = 3; y < TILE_SIZE; y += 8) ctx.fillRect(p.x + 4, p.y + y, TILE_SIZE - 8, 4);
+          }
+        }
+      } else if (tile === TILE.SIDEWALK) {
+        const xDistance = roadGridDistance(tx);
+        const yDistance = roadGridDistance(ty);
+        const verticalSidewalk = xDistance === 3 && yDistance > 3;
+        ctx.fillStyle = variation > 0.52 ? "#666b65" : "#606660";
+        ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
+        ctx.strokeStyle = "rgba(29,34,31,.3)";
+        ctx.lineWidth = 1;
+        ctx.strokeRect(p.x + 0.5, p.y + 0.5, TILE_SIZE - 1, TILE_SIZE - 1);
+        ctx.beginPath();
+        if (verticalSidewalk) {
+          ctx.moveTo(p.x + 16, p.y);
+          ctx.lineTo(p.x + 16, p.y + TILE_SIZE);
+        } else {
+          ctx.moveTo(p.x, p.y + 16);
+          ctx.lineTo(p.x + TILE_SIZE, p.y + 16);
+        }
+        ctx.stroke();
+        ctx.fillStyle = "rgba(225,226,205,.12)";
+        if (verticalSidewalk) ctx.fillRect(p.x + (positiveRoadSide(tx) ? 0 : TILE_SIZE - 3), p.y, 3, TILE_SIZE);
+        else ctx.fillRect(p.x, p.y + (positiveRoadSide(ty) ? 0 : TILE_SIZE - 3), TILE_SIZE, 3);
+        if (variation < 0.14) {
+          ctx.strokeStyle = "rgba(31,35,32,.38)";
+          ctx.beginPath();
+          ctx.moveTo(p.x + 8, p.y + 6);
+          ctx.lineTo(p.x + 14, p.y + 14);
+          ctx.lineTo(p.x + 12, p.y + 26);
+          ctx.stroke();
         }
       } else if (tile === TILE.FLOOR) {
         if (building?.type === "house") {
@@ -3952,6 +4188,35 @@
           ctx.fillStyle = "rgba(255,255,240,.055)";
           ctx.fillRect(p.x + 2, p.y + 2, 12, 2);
           ctx.fillRect(p.x + 18, p.y + 18, 12, 2);
+        }
+        const stair = building?.stairTile;
+        if (stair && stair.x === tx && stair.y === ty) {
+          const vertical = stair.side === "north" || stair.side === "south";
+          ctx.save();
+          ctx.translate(p.x + TILE_SIZE / 2, p.y + TILE_SIZE / 2);
+          if (!vertical) ctx.rotate(Math.PI / 2);
+          if (stair.side === "north" || stair.side === "west") ctx.rotate(Math.PI);
+          ctx.fillStyle = "rgba(19,22,19,.72)";
+          roundedRectPath(ctx, -12, -13, 24, 27, 3);
+          ctx.fill();
+          for (let step = 0; step < 6; step += 1) {
+            ctx.fillStyle = step % 2 ? "#7d715c" : "#8a7b63";
+            ctx.fillRect(-10, -11 + step * 4, 20, 3);
+            ctx.fillStyle = "rgba(226,210,175,.14)";
+            ctx.fillRect(-9, -10 + step * 4, 18, 1);
+          }
+          ctx.fillStyle = "#d9c87c";
+          ctx.beginPath();
+          ctx.moveTo(0, -10);
+          ctx.lineTo(-4, -4);
+          ctx.lineTo(-1, -4);
+          ctx.lineTo(-1, 4);
+          ctx.lineTo(1, 4);
+          ctx.lineTo(1, -4);
+          ctx.lineTo(4, -4);
+          ctx.closePath();
+          ctx.fill();
+          ctx.restore();
         }
         const door = doorData;
         if (door) {
@@ -4034,6 +4299,20 @@
         ctx.fillRect(p.x, p.y + 25, TILE_SIZE, 7);
         ctx.fillStyle = "rgba(222,211,183,.09)";
         ctx.fillRect(p.x + 3, p.y + 6, 2, 16);
+        if ((building?.floorCount || 1) > 1) {
+          ctx.fillStyle = "rgba(16,19,17,.2)";
+          ctx.fillRect(p.x, p.y + 14, TILE_SIZE, 3);
+          ctx.fillStyle = "rgba(231,225,194,.16)";
+          ctx.fillRect(p.x, p.y + 13, TILE_SIZE, 1);
+          if (!this.windowTiles.has(`${tx},${ty}`) && (tx + ty) % 3 === 0) {
+            ctx.fillStyle = "#1b292c";
+            ctx.fillRect(p.x + 9, p.y + 4, 14, 8);
+            ctx.fillStyle = "rgba(126,165,165,.22)";
+            ctx.fillRect(p.x + 11, p.y + 5, 4, 6);
+            ctx.strokeStyle = "rgba(207,215,199,.24)";
+            ctx.strokeRect(p.x + 8.5, p.y + 3.5, 15, 9);
+          }
+        }
         const windowData = this.windowTiles.get(`${tx},${ty}`);
         if (windowData) {
           ctx.fillStyle = "#242a28";
@@ -4094,53 +4373,224 @@
         ctx.quadraticCurveTo(p.x + 14, p.y + 9, p.x + 27, p.y + 13);
         ctx.stroke();
       } else if (tile === TILE.TREE) {
-        ctx.fillStyle = "#1e3022";
+        const species = hash2D(tx, ty, `${this.world.seed}:TREE-SPECIES`);
+        const sway = Math.sin(performance.now() * 55e-5 + tx * 1.7 + ty * 0.9) * 0.7;
+        ctx.fillStyle = variation > 0.55 ? "#203426" : "#1d3023";
         ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
-        ctx.fillStyle = "rgba(0,0,0,.3)";
+        ctx.fillStyle = "rgba(1,4,2,.36)";
         ctx.beginPath();
-        ctx.ellipse(p.x + 19, p.y + 24, 12, 6, 0.2, 0, Math.PI * 2);
+        ctx.ellipse(p.x + 18, p.y + 25, 13, 5.5, 0.12, 0, Math.PI * 2);
         ctx.fill();
-        ctx.fillStyle = "#31291e";
-        ctx.fillRect(p.x + 13, p.y + 15, 7, 17);
-        ctx.fillStyle = "#4a3b27";
-        ctx.fillRect(p.x + 14, p.y + 16, 2, 14);
-        ctx.fillStyle = variation > 0.5 ? "#2d4b32" : "#29442f";
-        ctx.beginPath();
-        ctx.arc(p.x + 10, p.y + 14, 10, 0, Math.PI * 2);
-        ctx.arc(p.x + 21, p.y + 12, 11, 0, Math.PI * 2);
-        ctx.arc(p.x + 16, p.y + 6, 9, 0, Math.PI * 2);
-        ctx.fill();
-        ctx.fillStyle = "rgba(143,167,112,.18)";
-        ctx.beginPath();
-        ctx.arc(p.x + 12, p.y + 7, 6, 0, Math.PI * 2);
-        ctx.fill();
+        if (species < 0.12) {
+          ctx.strokeStyle = "#4a3a2a";
+          ctx.lineCap = "round";
+          ctx.lineWidth = 5;
+          ctx.beginPath();
+          ctx.moveTo(p.x + 16, p.y + 30);
+          ctx.lineTo(p.x + 16 + sway, p.y + 8);
+          ctx.stroke();
+          ctx.lineWidth = 3;
+          ctx.beginPath();
+          ctx.moveTo(p.x + 16, p.y + 17);
+          ctx.lineTo(p.x + 7 + sway, p.y + 10);
+          ctx.moveTo(p.x + 16, p.y + 14);
+          ctx.lineTo(p.x + 25 + sway, p.y + 5);
+          ctx.moveTo(p.x + 11, p.y + 13);
+          ctx.lineTo(p.x + 8, p.y + 6);
+          ctx.moveTo(p.x + 22, p.y + 8);
+          ctx.lineTo(p.x + 27, p.y + 9);
+          ctx.stroke();
+          ctx.fillStyle = "#796144";
+          ctx.fillRect(p.x + 14, p.y + 16, 2, 12);
+        } else if (species < 0.38) {
+          ctx.fillStyle = "#3c3022";
+          ctx.fillRect(p.x + 14, p.y + 18, 5, 13);
+          const pineColors = variation > 0.5 ? ["#1f3e2b", "#295137", "#356044"] : ["#1c3928", "#244a32", "#30583d"];
+          for (let tier = 0; tier < 3; tier += 1) {
+            const centerY = p.y + 7 + tier * 6;
+            const half = 7 + tier * 3;
+            ctx.fillStyle = pineColors[tier];
+            ctx.beginPath();
+            ctx.moveTo(p.x + 16 + sway * (1 - tier * 0.18), centerY - 7);
+            ctx.lineTo(p.x + 16 - half, centerY + 9);
+            ctx.lineTo(p.x + 16 + half, centerY + 9);
+            ctx.closePath();
+            ctx.fill();
+          }
+          ctx.fillStyle = "rgba(160,188,135,.14)";
+          ctx.beginPath();
+          ctx.moveTo(p.x + 16 + sway, p.y + 2);
+          ctx.lineTo(p.x + 11, p.y + 13);
+          ctx.lineTo(p.x + 15, p.y + 11);
+          ctx.closePath();
+          ctx.fill();
+        } else if (species < 0.56) {
+          ctx.fillStyle = "#c3c0a7";
+          ctx.fillRect(p.x + 14, p.y + 12, 5, 19);
+          ctx.fillStyle = "#3a3630";
+          ctx.fillRect(p.x + 14, p.y + 17, 3, 2);
+          ctx.fillRect(p.x + 17, p.y + 23, 2, 2);
+          ctx.fillStyle = variation > 0.5 ? "#526c3d" : "#486238";
+          ctx.beginPath();
+          ctx.arc(p.x + 10 + sway, p.y + 12, 8, 0, Math.PI * 2);
+          ctx.arc(p.x + 20 + sway, p.y + 10, 9, 0, Math.PI * 2);
+          ctx.arc(p.x + 16 + sway, p.y + 5, 7, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(190,204,133,.25)";
+          ctx.beginPath();
+          ctx.arc(p.x + 12 + sway, p.y + 6, 4, 0, Math.PI * 2);
+          ctx.fill();
+        } else {
+          ctx.fillStyle = "#3b2e20";
+          roundedRectPath(ctx, p.x + 12, p.y + 13, 8, 18, 3);
+          ctx.fill();
+          ctx.fillStyle = "#6a5131";
+          ctx.fillRect(p.x + 14, p.y + 15, 2, 13);
+          const leaf = variation > 0.62 ? "#355b38" : variation > 0.28 ? "#2d5134" : "#29482f";
+          const leafDark = variation > 0.5 ? "#24452e" : "#213d29";
+          ctx.fillStyle = leafDark;
+          ctx.beginPath();
+          ctx.arc(p.x + 8 + sway, p.y + 14, 8, 0, Math.PI * 2);
+          ctx.arc(p.x + 24 + sway, p.y + 15, 8, 0, Math.PI * 2);
+          ctx.arc(p.x + 16 + sway, p.y + 7, 10, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = leaf;
+          ctx.beginPath();
+          ctx.arc(p.x + 11 + sway, p.y + 11, 8, 0, Math.PI * 2);
+          ctx.arc(p.x + 21 + sway, p.y + 10, 8.5, 0, Math.PI * 2);
+          ctx.arc(p.x + 16 + sway, p.y + 5, 7, 0, Math.PI * 2);
+          ctx.fill();
+          ctx.fillStyle = "rgba(161,187,119,.2)";
+          ctx.beginPath();
+          ctx.arc(p.x + 12 + sway, p.y + 6, 4.5, 0, Math.PI * 2);
+          ctx.fill();
+        }
       }
     }
     drawCars(ctx, shakeX, shakeY) {
       for (const car of this.world.cars) {
         const p = this.worldToScreen(car.x, car.y, shakeX, shakeY);
-        if (p.x < -80 || p.y < -80 || p.x > this.viewWidth + 80 || p.y > this.viewHeight + 80) continue;
+        if (p.x < -95 || p.y < -95 || p.x > this.viewWidth + 95 || p.y > this.viewHeight + 95) continue;
+        const kind = car.kind || "sedan";
+        const vertical = car.h > car.w;
+        const length = Math.max(car.w, car.h);
+        const width = Math.min(car.w, car.h);
+        const halfL = length / 2;
+        const halfW = width / 2;
+        const damage = car.damageVariant || 0;
         ctx.save();
         ctx.translate(p.x, p.y);
-        ctx.fillStyle = "rgba(0,0,0,.28)";
-        ctx.fillRect(-car.w / 2 + 4, -car.h / 2 + 6, car.w, car.h);
+        if (vertical) ctx.rotate(Math.PI / 2);
+        ctx.fillStyle = "rgba(0,0,0,.34)";
+        roundedRectPath(ctx, -halfL + 4, -halfW + 6, length, width, Math.min(8, width * 0.27));
+        ctx.fill();
+        ctx.fillStyle = "#121615";
+        const wheelLength = kind === "ambulance" || kind === "van" ? 13 : 10;
+        ctx.fillRect(-halfL + 8, -halfW - 3, wheelLength, 5);
+        ctx.fillRect(halfL - 8 - wheelLength, -halfW - 3, wheelLength, 5);
+        ctx.fillRect(-halfL + 8, halfW - 2, wheelLength, 5);
+        ctx.fillRect(halfL - 8 - wheelLength, halfW - 2, wheelLength, 5);
         ctx.fillStyle = car.color;
-        ctx.fillRect(-car.w / 2, -car.h / 2, car.w, car.h);
-        ctx.fillStyle = "#172024";
-        if (car.w > car.h) {
-          ctx.fillRect(-car.w * 0.2, -car.h / 2 + 3, car.w * 0.42, car.h - 6);
-          ctx.fillStyle = "#151817";
-          ctx.fillRect(-car.w / 2 + 4, -car.h / 2 - 3, 9, 3);
-          ctx.fillRect(car.w / 2 - 13, car.h / 2, 9, 3);
-        } else {
-          ctx.fillRect(-car.w / 2 + 3, -car.h * 0.2, car.w - 6, car.h * 0.42);
-          ctx.fillStyle = "#151817";
-          ctx.fillRect(-car.w / 2 - 3, -car.h / 2 + 4, 3, 9);
-          ctx.fillRect(car.w / 2, car.h / 2 - 13, 3, 9);
+        roundedRectPath(ctx, -halfL, -halfW, length, width, kind === "pickup" ? 5 : Math.min(8, width * 0.3));
+        ctx.fill();
+        ctx.fillStyle = "rgba(236,235,215,.12)";
+        roundedRectPath(ctx, -halfL + 2, -halfW + 2, length - 4, 4, 2);
+        ctx.fill();
+        const cabinFront = kind === "van" || kind === "ambulance" ? -halfL + length * 0.22 : -halfL + length * 0.34;
+        const cabinBack = kind === "pickup" ? halfL - length * 0.25 : halfL - length * 0.25;
+        ctx.fillStyle = "#172327";
+        roundedRectPath(ctx, cabinFront, -halfW + 4, Math.max(13, cabinBack - cabinFront), width - 8, 4);
+        ctx.fill();
+        ctx.fillStyle = "#2e4449";
+        ctx.beginPath();
+        ctx.moveTo(cabinFront + 3, -halfW + 6);
+        ctx.lineTo(cabinFront + 10, -halfW + 6);
+        ctx.lineTo(cabinFront + 12, halfW - 6);
+        ctx.lineTo(cabinFront + 3, halfW - 6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.fillStyle = "rgba(170,207,206,.2)";
+        ctx.fillRect(cabinFront + 4, -halfW + 7, 3, width - 14);
+        if (kind === "pickup") {
+          ctx.fillStyle = "#252b28";
+          roundedRectPath(ctx, halfL - length * 0.28, -halfW + 3, length * 0.23, width - 6, 3);
+          ctx.fill();
+          ctx.fillStyle = "rgba(139,122,91,.24)";
+          ctx.fillRect(halfL - length * 0.25, -halfW + 6, length * 0.17, width - 12);
+          ctx.strokeStyle = "rgba(225,224,204,.15)";
+          ctx.strokeRect(halfL - length * 0.28 + 0.5, -halfW + 3.5, length * 0.23 - 1, width - 7);
+        } else if (kind === "van" || kind === "ambulance") {
+          ctx.fillStyle = kind === "ambulance" ? "#b84a43" : "rgba(27,38,39,.72)";
+          ctx.fillRect(-2, -halfW + 2, 4, width - 4);
+          if (kind === "van") {
+            ctx.fillStyle = "#26383b";
+            ctx.fillRect(5, -halfW + 5, 13, 7);
+            ctx.fillRect(5, halfW - 12, 13, 7);
+          }
+        }
+        ctx.strokeStyle = "rgba(17,21,19,.42)";
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.moveTo(cabinFront + (cabinBack - cabinFront) * 0.52, -halfW + 3);
+        ctx.lineTo(cabinFront + (cabinBack - cabinFront) * 0.52, halfW - 3);
+        ctx.stroke();
+        ctx.fillStyle = "#d9c985";
+        ctx.fillRect(-halfL + 2, -halfW + 4, 3, 6);
+        ctx.fillRect(-halfL + 2, halfW - 10, 3, 6);
+        ctx.fillStyle = "#8f3934";
+        ctx.fillRect(halfL - 5, -halfW + 4, 3, 6);
+        ctx.fillRect(halfL - 5, halfW - 10, 3, 6);
+        if (kind === "police") {
+          ctx.fillStyle = "#24333d";
+          ctx.fillRect(-halfL + 7, -halfW + 2, length - 14, 4);
+          ctx.fillRect(-halfL + 7, halfW - 6, length - 14, 4);
+          ctx.fillStyle = "#2d3c40";
+          ctx.fillRect(-2, -halfW + 1, 4, width - 2);
+          ctx.fillStyle = "#b74642";
+          ctx.fillRect(-4, -4, 4, 8);
+          ctx.fillStyle = "#4f7899";
+          ctx.fillRect(0, -4, 4, 8);
+          ctx.fillStyle = "#e4e5dc";
+          ctx.font = "900 6px system-ui, sans-serif";
+          ctx.textAlign = "center";
+          ctx.textBaseline = "middle";
+          ctx.fillText("HC", 10, 0);
+        } else if (kind === "ambulance") {
+          ctx.fillStyle = "#b74642";
+          ctx.fillRect(-halfL + 5, -halfW + 2, length - 10, 3);
+          ctx.fillRect(-halfL + 5, halfW - 5, length - 10, 3);
+          ctx.fillRect(7, -5, 3, 10);
+          ctx.fillRect(3.5, -1.5, 10, 3);
+          ctx.fillStyle = "#b74642";
+          ctx.fillRect(-halfL + 16, -4, 4, 8);
+          ctx.fillStyle = "#4f7899";
+          ctx.fillRect(-halfL + 20, -4, 4, 8);
+        } else if (kind === "suv") {
+          ctx.fillStyle = "#242b29";
+          ctx.fillRect(-10, -halfW + 1, 2, width - 2);
+          ctx.fillRect(8, -halfW + 1, 2, width - 2);
+        }
+        if (damage > 0) {
+          ctx.strokeStyle = "rgba(26,21,18,.62)";
+          ctx.lineWidth = 1.4;
+          ctx.beginPath();
+          ctx.moveTo(-halfL + 8 + damage * 3, -halfW + 4);
+          ctx.lineTo(-halfL + 14 + damage * 2, -2);
+          ctx.lineTo(-halfL + 10 + damage * 4, halfW - 5);
+          ctx.stroke();
+          if (damage > 2) {
+            ctx.fillStyle = "rgba(79,56,42,.62)";
+            ctx.beginPath();
+            ctx.ellipse(halfL - 10, 4, 7, 4, 0.2, 0, Math.PI * 2);
+            ctx.fill();
+          }
         }
         if (car.searched) {
-          ctx.strokeStyle = "rgba(219,215,190,.2)";
-          ctx.strokeRect(-car.w / 2 + 2, -car.h / 2 + 2, car.w - 4, car.h - 4);
+          ctx.strokeStyle = "rgba(225,221,195,.32)";
+          ctx.setLineDash([4, 3]);
+          roundedRectPath(ctx, -halfL + 2, -halfW + 2, length - 4, width - 4, 5);
+          ctx.stroke();
+          ctx.setLineDash([]);
         }
         ctx.restore();
       }
@@ -5289,7 +5739,7 @@
       for (let oy = -half; oy <= half; oy += 1) {
         for (let ox = -half; ox <= half; ox += 1) {
           const tile = getTile(this.world, centerX + ox, centerY + oy);
-          ctx.fillStyle = tile === TILE.ROAD ? "#59605b" : tile === TILE.FLOOR ? "#817765" : tile === TILE.WALL ? "#333a35" : tile === TILE.WATER ? "#29434a" : tile === TILE.TREE ? "#18291c" : "#26362a";
+          ctx.fillStyle = tile === TILE.ROAD ? "#59605b" : tile === TILE.SIDEWALK ? "#777b73" : tile === TILE.FLOOR ? "#817765" : tile === TILE.WALL ? "#333a35" : tile === TILE.WATER ? "#29434a" : tile === TILE.TREE ? "#18291c" : "#26362a";
           ctx.fillRect((ox + half) * scale, (oy + half) * scale, Math.ceil(scale), Math.ceil(scale));
         }
       }
@@ -5317,7 +5767,7 @@
   };
   window.__walkers = new HollowCountyGame();
 
-  // Walkers-Zombie-Types-Addon.js
+  // ../Walkers-Zombie-Types-Addon.js
   (() => {
     "use strict";
     const TYPES = Object.freeze({
@@ -5712,7 +6162,7 @@
     else window.addEventListener("load", () => install(window.__walkers), { once: true });
   })();
 
-  // Walkers-NPC-Player-Upgrade-Addon.js
+  // ../Walkers-NPC-Player-Upgrade-Addon.js
   (() => {
     "use strict";
     const ATTITUDE = Object.freeze({
@@ -6491,7 +6941,7 @@
     else window.addEventListener("load", () => install(window.__walkers), { once: true });
   })();
 
-  // Walkers-Character-Creator-Inventory-Addon.js
+  // ../Walkers-Character-Creator-Inventory-Addon.js
   (() => {
     "use strict";
     const APPEARANCE_KEY = "walkers-player-appearance-v1";
@@ -7337,7 +7787,7 @@
     else window.addEventListener("load", () => install(window.__walkers), { once: true });
   })();
 
-  // Walkers-Player-Building-Access-Fix.js
+  // ../Walkers-Player-Building-Access-Fix.js
   (() => {
     "use strict";
     const TILE2 = Object.freeze({ GRASS: 0, ROAD: 1, FLOOR: 2, WALL: 3, WATER: 4, TREE: 5 });
@@ -7459,7 +7909,7 @@
         repairedAccess: true
       };
       Object.assign(door, persistedDoorState(world, building, id) || {});
-      building.doors || (building.doors = []);
+      building.doors ||= [];
       building.doors.push(door);
       building.windows = (building.windows || []).filter((window2) => window2.x !== cell.x || window2.y !== cell.y);
       building.barTiles = (building.barTiles || []).filter((bar) => bar.x !== cell.x || bar.y !== cell.y);
@@ -7662,7 +8112,7 @@
     }
     function repairBuilding(world, building, owners, report) {
       if (!building?.cells?.length || building.__accessRepairVersion === REPAIR_VERSION) return false;
-      building.doors || (building.doors = []);
+      building.doors ||= [];
       const cells = buildingSet(building);
       let changed = false;
       let exterior = building.doors.filter((door) => door.exterior);
@@ -7935,76 +8385,75 @@
     if (window.__walkers) install(window.__walkers);
     else window.addEventListener("load", () => install(window.__walkers), { once: true });
   })();
-})();/*
- * WALKERS — Fluid Zombies, Inventory & HUD add-on
- * Version 1.0.0
- *
- * INSTALL:
- * Paste this entire file at the VERY BOTTOM of game.js, after all existing code.
- * No HTML or CSS changes are required.
- *
- * WHAT IT CHANGES:
- * - Shrinks zombie artwork to 76% without moving zombies or changing combat range.
- * - Smooths zombie position, turning, gait speed and movement blending.
- * - Reduces all stamina costs (sprinting and attacks) by exactly 50%.
- * - Adds an upgraded, filterable inventory interface using the game's real items.
- * - Rebuilds the HUD with clearer vitals, condition and equipped-item readouts.
- */
 
-(() => {
-  "use strict";
-
-  const ADDON_VERSION = "1.0.0";
-  const ZOMBIE_VISUAL_SCALE = 0.76;
-  const INSTALL_FLAG = "__hcFluidZombieHudInventoryV1";
-
-  const WEAPON_IDS = new Set([
-    "knife", "hammer", "bat", "axe", "machete", "katana", "crowbar",
-    "spear", "sledgehammer", "pistol", "revolver", "machine_pistol",
-    "smg", "shotgun", "double_barrel", "rifle", "carbine",
-    "assault_rifle", "lever_rifle"
-  ]);
-
-  const SUPPLY_IDS = new Set([
-    "canned_beans", "crackers", "jerky", "water", "soda", "bandage",
-    "painkillers", "disinfectant", "ammo_9mm", "ammo_45", "shell",
-    "rifle_round"
-  ]);
-
-  const MATERIAL_IDS = new Set(["rag", "plank", "nails", "scrap"]);
-
-  const state = {
-    filter: "all",
-    zombieMotion: new WeakMap()
-  };
-
-  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
-  const byId = (id) => typeof document === "undefined" ? null : document.getElementById(id);
-
-  function readableId(id) {
-    if (!id) return "BARE HANDS";
-    return String(id).replaceAll("_", " ").toUpperCase();
-  }
-
-  function itemCategory(id) {
-    if (WEAPON_IDS.has(id)) return "weapons";
-    if (SUPPLY_IDS.has(id)) return "supplies";
-    if (MATERIAL_IDS.has(id)) return "materials";
-    return "gear";
-  }
-
-  function totalItems(game) {
-    return (game.player?.inventory || []).reduce((sum, entry) => {
-      return sum + Math.max(0, Number(entry.qty) || 0);
-    }, 0);
-  }
-
-  function injectStyles() {
-    if (typeof document === "undefined" || byId("hcFluidHudStyles")) return;
-
-    const style = document.createElement("style");
-    style.id = "hcFluidHudStyles";
-    style.textContent = `
+  // ../Walkers-Fluid-Zombies-HUD-Inventory-Addon.js
+  (() => {
+    "use strict";
+    const ADDON_VERSION = "1.0.0";
+    const ZOMBIE_VISUAL_SCALE = 0.76;
+    const INSTALL_FLAG = "__hcFluidZombieHudInventoryV1";
+    const WEAPON_IDS = /* @__PURE__ */ new Set([
+      "knife",
+      "hammer",
+      "bat",
+      "axe",
+      "machete",
+      "katana",
+      "crowbar",
+      "spear",
+      "sledgehammer",
+      "pistol",
+      "revolver",
+      "machine_pistol",
+      "smg",
+      "shotgun",
+      "double_barrel",
+      "rifle",
+      "carbine",
+      "assault_rifle",
+      "lever_rifle"
+    ]);
+    const SUPPLY_IDS = /* @__PURE__ */ new Set([
+      "canned_beans",
+      "crackers",
+      "jerky",
+      "water",
+      "soda",
+      "bandage",
+      "painkillers",
+      "disinfectant",
+      "ammo_9mm",
+      "ammo_45",
+      "shell",
+      "rifle_round"
+    ]);
+    const MATERIAL_IDS = /* @__PURE__ */ new Set(["rag", "plank", "nails", "scrap"]);
+    const state = {
+      filter: "all",
+      zombieMotion: /* @__PURE__ */ new WeakMap()
+    };
+    const clamp2 = (value, min, max) => Math.max(min, Math.min(max, value));
+    const byId = (id) => typeof document === "undefined" ? null : document.getElementById(id);
+    function readableId(id) {
+      if (!id) return "BARE HANDS";
+      return String(id).replaceAll("_", " ").toUpperCase();
+    }
+    function itemCategory(id) {
+      if (WEAPON_IDS.has(id)) return "weapons";
+      if (SUPPLY_IDS.has(id)) return "supplies";
+      if (MATERIAL_IDS.has(id)) return "materials";
+      return "gear";
+    }
+    function totalItems(game) {
+      return (game.player?.inventory || []).reduce((sum, entry) => {
+        return sum + Math.max(0, Number(entry.qty) || 0);
+      }, 0);
+    }
+    function injectStyles() {
+      if (typeof document === "undefined" || byId("hcFluidHudStyles")) return;
+      const style = document.createElement("style");
+      style.id = "hcFluidHudStyles";
+      style.textContent = `
       /* HUD shell */
       #game .hud-top {
         height: 76px;
@@ -8265,496 +8714,411 @@
         .hc-inventory-filters { grid-template-columns: repeat(3, 1fr); }
       }
     `;
-    document.head.append(style);
-  }
-
-  function ensureInventoryDom(game) {
-    if (typeof document === "undefined") return;
-
-    const gameScreen = byId("game");
-    const actions = gameScreen?.querySelector(".hud-actions");
-    let button = byId("inventoryBtn");
-    let createdButton = false;
-
-    if (!button && actions) {
-      button = document.createElement("button");
-      button.id = "inventoryBtn";
-      button.type = "button";
-      button.title = "Inventory (Tab or I)";
-      actions.prepend(button);
-      createdButton = true;
+      document.head.append(style);
     }
-
-    if (button) {
-      const key = button.querySelector("kbd") || document.createElement("kbd");
-      key.textContent = "TAB";
-      const badge = button.querySelector(".hc-inventory-badge") || document.createElement("span");
-      badge.className = "hc-inventory-badge";
-      badge.textContent = "0";
-      button.replaceChildren(document.createTextNode("INVENTORY "), key, badge);
-      if (createdButton) button.addEventListener("click", () => game.togglePanel?.("inventoryPanel"));
-    }
-
-    let panel = byId("inventoryPanel");
-    if (!panel && gameScreen) {
-      panel = document.createElement("section");
-      panel.id = "inventoryPanel";
-      panel.className = "side-panel hidden";
-      panel.setAttribute("aria-label", "Inventory");
-      panel.innerHTML = `
+    function ensureInventoryDom(game) {
+      if (typeof document === "undefined") return;
+      const gameScreen = byId("game");
+      const actions = gameScreen?.querySelector(".hud-actions");
+      let button = byId("inventoryBtn");
+      let createdButton = false;
+      if (!button && actions) {
+        button = document.createElement("button");
+        button.id = "inventoryBtn";
+        button.type = "button";
+        button.title = "Inventory (Tab or I)";
+        actions.prepend(button);
+        createdButton = true;
+      }
+      if (button) {
+        const key2 = button.querySelector("kbd") || document.createElement("kbd");
+        key2.textContent = "TAB";
+        const badge = button.querySelector(".hc-inventory-badge") || document.createElement("span");
+        badge.className = "hc-inventory-badge";
+        badge.textContent = "0";
+        button.replaceChildren(document.createTextNode("INVENTORY "), key2, badge);
+        if (createdButton) button.addEventListener("click", () => game.togglePanel?.("inventoryPanel"));
+      }
+      let panel = byId("inventoryPanel");
+      if (!panel && gameScreen) {
+        panel = document.createElement("section");
+        panel.id = "inventoryPanel";
+        panel.className = "side-panel hidden";
+        panel.setAttribute("aria-label", "Inventory");
+        panel.innerHTML = `
         <header>
           <div><p class="label">SURVIVOR GEAR</p><h2>Inventory</h2></div>
-          <button class="close-panel" type="button" aria-label="Close inventory">×</button>
+          <button class="close-panel" type="button" aria-label="Close inventory">\xD7</button>
         </header>
         <div class="weight"><span>CARRY WEIGHT</span><b id="weightValue">0 / 18 kg</b><div><i id="weightBar"></i></div></div>
         <div id="inventoryList" class="item-list"></div>
         <footer><span>Tap an item to use or equip it.</span><button id="dropItemBtn" type="button" disabled>DROP</button></footer>
       `;
-      gameScreen.append(panel);
-      panel.querySelector(".close-panel")?.addEventListener("click", () => game.closePanel?.("inventoryPanel"));
-      byId("dropItemBtn")?.addEventListener("click", () => game.dropSelectedItem?.());
+        gameScreen.append(panel);
+        panel.querySelector(".close-panel")?.addEventListener("click", () => game.closePanel?.("inventoryPanel"));
+        byId("dropItemBtn")?.addEventListener("click", () => game.dropSelectedItem?.());
+      }
+      const list = byId("inventoryList");
+      if (!panel || !list || byId("hcInventoryTools")) return;
+      const tools = document.createElement("div");
+      tools.id = "hcInventoryTools";
+      const summary = document.createElement("div");
+      summary.className = "hc-inventory-summary";
+      const summaryLabel = document.createElement("span");
+      summaryLabel.textContent = "PACK CONTENTS";
+      const summaryValue = document.createElement("b");
+      summaryValue.id = "hcInventoryCount";
+      summaryValue.textContent = "0 ITEMS";
+      summary.append(summaryLabel, summaryValue);
+      const filters = document.createElement("div");
+      filters.className = "hc-inventory-filters";
+      filters.setAttribute("aria-label", "Inventory filters");
+      const filterOptions = [
+        ["all", "ALL"],
+        ["weapons", "WEAPONS"],
+        ["supplies", "SUPPLIES"],
+        ["materials", "MATERIALS"],
+        ["gear", "GEAR"]
+      ];
+      for (const [value, label] of filterOptions) {
+        const filterButton = document.createElement("button");
+        filterButton.type = "button";
+        filterButton.dataset.filter = value;
+        filterButton.textContent = label;
+        filterButton.classList.toggle("active", value === state.filter);
+        filterButton.addEventListener("click", () => {
+          state.filter = value;
+          applyInventoryFilter(game);
+        });
+        filters.append(filterButton);
+      }
+      tools.append(summary, filters);
+      list.before(tools);
+      const empty = document.createElement("div");
+      empty.id = "hcInventoryFilterEmpty";
+      empty.className = "hc-filter-empty";
+      empty.textContent = "No items in this category.";
+      empty.hidden = true;
+      list.after(empty);
     }
-
-    const list = byId("inventoryList");
-    if (!panel || !list || byId("hcInventoryTools")) return;
-
-    const tools = document.createElement("div");
-    tools.id = "hcInventoryTools";
-
-    const summary = document.createElement("div");
-    summary.className = "hc-inventory-summary";
-    const summaryLabel = document.createElement("span");
-    summaryLabel.textContent = "PACK CONTENTS";
-    const summaryValue = document.createElement("b");
-    summaryValue.id = "hcInventoryCount";
-    summaryValue.textContent = "0 ITEMS";
-    summary.append(summaryLabel, summaryValue);
-
-    const filters = document.createElement("div");
-    filters.className = "hc-inventory-filters";
-    filters.setAttribute("aria-label", "Inventory filters");
-
-    const filterOptions = [
-      ["all", "ALL"],
-      ["weapons", "WEAPONS"],
-      ["supplies", "SUPPLIES"],
-      ["materials", "MATERIALS"],
-      ["gear", "GEAR"]
-    ];
-
-    for (const [value, label] of filterOptions) {
-      const filterButton = document.createElement("button");
-      filterButton.type = "button";
-      filterButton.dataset.filter = value;
-      filterButton.textContent = label;
-      filterButton.classList.toggle("active", value === state.filter);
-      filterButton.addEventListener("click", () => {
-        state.filter = value;
-        applyInventoryFilter(game);
-      });
-      filters.append(filterButton);
-    }
-
-    tools.append(summary, filters);
-    list.before(tools);
-
-    const empty = document.createElement("div");
-    empty.id = "hcInventoryFilterEmpty";
-    empty.className = "hc-filter-empty";
-    empty.textContent = "No items in this category.";
-    empty.hidden = true;
-    list.after(empty);
-  }
-
-  function ensureHudDom() {
-    if (typeof document === "undefined") return;
-    const vitals = document.querySelector("#game .vitals");
-    if (!vitals || byId("hcHudState")) return;
-
-    const status = document.createElement("div");
-    status.id = "hcHudState";
-    status.className = "hc-hud-state";
-    status.innerHTML = `
+    function ensureHudDom() {
+      if (typeof document === "undefined") return;
+      const vitals = document.querySelector("#game .vitals");
+      if (!vitals || byId("hcHudState")) return;
+      const status = document.createElement("div");
+      status.id = "hcHudState";
+      status.className = "hc-hud-state";
+      status.innerHTML = `
       <div><span>CONDITION</span><b id="hcCondition">STEADY</b></div>
       <div><span>EQUIPPED</span><b id="hcEquipped">BARE HANDS</b></div>
     `;
-    vitals.append(status);
-  }
-
-  function applyInventoryFilter(game) {
-    const list = byId("inventoryList");
-    const panel = byId("inventoryPanel");
-    if (!list || !game.player) return;
-
-    const rows = [...list.querySelectorAll(".item-row")];
-    let visible = 0;
-    rows.forEach((row, index) => {
-      const id = game.player.inventory[index]?.id;
-      const category = itemCategory(id);
-      row.dataset.itemId = id || "";
-      row.dataset.category = category;
-      const show = state.filter === "all" || state.filter === category;
-      row.hidden = !show;
-      if (show) visible += 1;
-    });
-
-    panel?.querySelectorAll(".hc-inventory-filters button").forEach((button) => {
-      button.classList.toggle("active", button.dataset.filter === state.filter);
-      button.setAttribute("aria-pressed", String(button.dataset.filter === state.filter));
-    });
-
-    const empty = byId("hcInventoryFilterEmpty");
-    if (empty) empty.hidden = !game.player.inventory.length || visible > 0;
-  }
-
-  function updateAddonHud(game) {
-    if (!game.player || typeof document === "undefined") return;
-    const player = game.player;
-    const count = totalItems(game);
-    const stackCount = player.inventory?.length || 0;
-
-    const badge = byId("inventoryBtn")?.querySelector(".hc-inventory-badge");
-    if (badge) {
-      badge.textContent = count > 99 ? "99+" : String(count);
-      badge.hidden = count <= 0;
+      vitals.append(status);
     }
-
-    const countLabel = byId("hcInventoryCount");
-    if (countLabel) {
-      countLabel.textContent = `${count} ITEM${count === 1 ? "" : "S"} • ${stackCount} STACK${stackCount === 1 ? "" : "S"}`;
+    function applyInventoryFilter(game) {
+      const list = byId("inventoryList");
+      const panel = byId("inventoryPanel");
+      if (!list || !game.player) return;
+      const rows = [...list.querySelectorAll(".item-row")];
+      let visible = 0;
+      rows.forEach((row, index) => {
+        const id = game.player.inventory[index]?.id;
+        const category = itemCategory(id);
+        row.dataset.itemId = id || "";
+        row.dataset.category = category;
+        const show = state.filter === "all" || state.filter === category;
+        row.hidden = !show;
+        if (show) visible += 1;
+      });
+      panel?.querySelectorAll(".hc-inventory-filters button").forEach((button) => {
+        button.classList.toggle("active", button.dataset.filter === state.filter);
+        button.setAttribute("aria-pressed", String(button.dataset.filter === state.filter));
+      });
+      const empty = byId("hcInventoryFilterEmpty");
+      if (empty) empty.hidden = !game.player.inventory.length || visible > 0;
     }
-
-    const equipped = byId("hcEquipped");
-    if (equipped) equipped.textContent = readableId(player.equipped);
-
-    let condition = "STEADY";
-    let severity = "normal";
-    if (player.health <= 24) {
-      condition = "CRITICAL";
-      severity = "danger";
-    } else if (player.infection >= 60) {
-      condition = "INFECTED";
-      severity = "danger";
-    } else if (player.exhausted || player.stamina <= 10) {
-      condition = "EXHAUSTED";
-      severity = "danger";
-    } else if (player.health <= 48 || player.stamina <= 28) {
-      condition = player.health <= 48 ? "INJURED" : "WINDED";
-      severity = "warning";
-    } else if (player.crouching) {
-      condition = "SNEAKING";
-    } else if (player.sprintingNow) {
-      condition = "SPRINTING";
-      severity = "warning";
-    }
-
-    const conditionLabel = byId("hcCondition");
-    const status = byId("hcHudState");
-    if (conditionLabel) conditionLabel.textContent = condition;
-    if (status) {
-      status.classList.toggle("is-warning", severity === "warning");
-      status.classList.toggle("is-danger", severity === "danger");
-    }
-
-    for (const name of ["health", "stamina", "hunger", "thirst", "infection"]) {
-      const bar = byId(`${name}Bar`);
-      if (bar) {
-        bar.setAttribute("role", "progressbar");
-        bar.setAttribute("aria-valuemin", "0");
-        bar.setAttribute("aria-valuemax", "100");
-        bar.setAttribute("aria-valuenow", String(Math.round(clamp(Number(player[name]) || 0, 0, 100))));
+    function updateAddonHud(game) {
+      if (!game.player || typeof document === "undefined") return;
+      const player = game.player;
+      const count = totalItems(game);
+      const stackCount = player.inventory?.length || 0;
+      const badge = byId("inventoryBtn")?.querySelector(".hc-inventory-badge");
+      if (badge) {
+        badge.textContent = count > 99 ? "99+" : String(count);
+        badge.hidden = count <= 0;
+      }
+      const countLabel = byId("hcInventoryCount");
+      if (countLabel) {
+        countLabel.textContent = `${count} ITEM${count === 1 ? "" : "S"} \u2022 ${stackCount} STACK${stackCount === 1 ? "" : "S"}`;
+      }
+      const equipped = byId("hcEquipped");
+      if (equipped) equipped.textContent = readableId(player.equipped);
+      let condition = "STEADY";
+      let severity = "normal";
+      if (player.health <= 24) {
+        condition = "CRITICAL";
+        severity = "danger";
+      } else if (player.infection >= 60) {
+        condition = "INFECTED";
+        severity = "danger";
+      } else if (player.exhausted || player.stamina <= 10) {
+        condition = "EXHAUSTED";
+        severity = "danger";
+      } else if (player.health <= 48 || player.stamina <= 28) {
+        condition = player.health <= 48 ? "INJURED" : "WINDED";
+        severity = "warning";
+      } else if (player.crouching) {
+        condition = "SNEAKING";
+      } else if (player.sprintingNow) {
+        condition = "SPRINTING";
+        severity = "warning";
+      }
+      const conditionLabel = byId("hcCondition");
+      const status = byId("hcHudState");
+      if (conditionLabel) conditionLabel.textContent = condition;
+      if (status) {
+        status.classList.toggle("is-warning", severity === "warning");
+        status.classList.toggle("is-danger", severity === "danger");
+      }
+      for (const name of ["health", "stamina", "hunger", "thirst", "infection"]) {
+        const bar = byId(`${name}Bar`);
+        if (bar) {
+          bar.setAttribute("role", "progressbar");
+          bar.setAttribute("aria-valuemin", "0");
+          bar.setAttribute("aria-valuemax", "100");
+          bar.setAttribute("aria-valuenow", String(Math.round(clamp2(Number(player[name]) || 0, 0, 100))));
+        }
       }
     }
-  }
-
-  function refreshInventory(game) {
-    updateAddonHud(game);
-    applyInventoryFilter(game);
-  }
-
-  function makeMotion(zombie) {
-    const motion = {
-      x: Number(zombie.x) || 0,
-      y: Number(zombie.y) || 0,
-      angle: Number(zombie.angle) || 0,
-      move: clamp(Number(zombie.moveBlend) || 0, 0, 1),
-      phase: Number(zombie.animTime) || 0
-    };
-    state.zombieMotion.set(zombie, motion);
-    return motion;
-  }
-
-  function smoothZombieMotion(game, dt) {
-    const safeDt = clamp(Number(dt) || 0, 0, 0.05);
-    for (const zombie of game.zombies || []) {
-      const motion = state.zombieMotion.get(zombie) || makeMotion(zombie);
-      const targetX = Number(zombie.x) || 0;
-      const targetY = Number(zombie.y) || 0;
-      const displacement = Math.hypot(targetX - motion.x, targetY - motion.y);
-
-      if (displacement > 150 || !Number.isFinite(displacement)) {
-        motion.x = targetX;
-        motion.y = targetY;
-      } else {
-        const positionBlend = 1 - Math.exp(-28 * safeDt);
-        motion.x += (targetX - motion.x) * positionBlend;
-        motion.y += (targetY - motion.y) * positionBlend;
-      }
-
-      const targetAngle = Number(zombie.angle) || 0;
-      const angleDelta = Math.atan2(
-        Math.sin(targetAngle - motion.angle),
-        Math.cos(targetAngle - motion.angle)
-      );
-      const turnSpeed = zombie.state === "chase" || zombie.state === "bash" ? 13 : 8;
-      motion.angle += angleDelta * (1 - Math.exp(-turnSpeed * safeDt));
-
-      const targetMove = clamp(Number(zombie.moveBlend) || 0, 0, 1);
-      motion.move += (targetMove - motion.move) * (1 - Math.exp(-9 * safeDt));
-
-      const gaitRate = zombie.dead
-        ? 0
-        : zombie.state === "chase" || zombie.state === "bash"
-          ? 7.2
-          : zombie.state === "investigate"
-            ? 5.1
-            : 3.7;
-      motion.phase += safeDt * (1.2 + gaitRate * motion.move);
+    function refreshInventory(game) {
+      updateAddonHud(game);
+      applyInventoryFilter(game);
     }
-  }
-
-  function scaledZombieContext(context, scale) {
-    let depth = 0;
-    let waitingForOrigin = false;
-
-    return new Proxy(context, {
-      get(target, property) {
-        if (property === "save") {
-          return () => {
-            target.save();
-            depth += 1;
-            if (depth === 1) waitingForOrigin = true;
-          };
+    function makeMotion(zombie) {
+      const motion = {
+        x: Number(zombie.x) || 0,
+        y: Number(zombie.y) || 0,
+        angle: Number(zombie.angle) || 0,
+        move: clamp2(Number(zombie.moveBlend) || 0, 0, 1),
+        phase: Number(zombie.animTime) || 0
+      };
+      state.zombieMotion.set(zombie, motion);
+      return motion;
+    }
+    function smoothZombieMotion(game, dt) {
+      const safeDt = clamp2(Number(dt) || 0, 0, 0.05);
+      for (const zombie of game.zombies || []) {
+        const motion = state.zombieMotion.get(zombie) || makeMotion(zombie);
+        const targetX = Number(zombie.x) || 0;
+        const targetY = Number(zombie.y) || 0;
+        const displacement = Math.hypot(targetX - motion.x, targetY - motion.y);
+        if (displacement > 150 || !Number.isFinite(displacement)) {
+          motion.x = targetX;
+          motion.y = targetY;
+        } else {
+          const positionBlend = 1 - Math.exp(-28 * safeDt);
+          motion.x += (targetX - motion.x) * positionBlend;
+          motion.y += (targetY - motion.y) * positionBlend;
         }
-        if (property === "restore") {
-          return () => {
-            target.restore();
-            if (depth === 1) waitingForOrigin = false;
-            depth = Math.max(0, depth - 1);
-          };
+        const targetAngle = Number(zombie.angle) || 0;
+        const angleDelta = Math.atan2(
+          Math.sin(targetAngle - motion.angle),
+          Math.cos(targetAngle - motion.angle)
+        );
+        const turnSpeed = zombie.state === "chase" || zombie.state === "bash" ? 13 : 8;
+        motion.angle += angleDelta * (1 - Math.exp(-turnSpeed * safeDt));
+        const targetMove = clamp2(Number(zombie.moveBlend) || 0, 0, 1);
+        motion.move += (targetMove - motion.move) * (1 - Math.exp(-9 * safeDt));
+        const gaitRate = zombie.dead ? 0 : zombie.state === "chase" || zombie.state === "bash" ? 7.2 : zombie.state === "investigate" ? 5.1 : 3.7;
+        motion.phase += safeDt * (1.2 + gaitRate * motion.move);
+      }
+    }
+    function scaledZombieContext(context, scale) {
+      let depth = 0;
+      let waitingForOrigin = false;
+      return new Proxy(context, {
+        get(target, property) {
+          if (property === "save") {
+            return () => {
+              target.save();
+              depth += 1;
+              if (depth === 1) waitingForOrigin = true;
+            };
+          }
+          if (property === "restore") {
+            return () => {
+              target.restore();
+              if (depth === 1) waitingForOrigin = false;
+              depth = Math.max(0, depth - 1);
+            };
+          }
+          if (property === "translate") {
+            return (x, y) => {
+              target.translate(x, y);
+              if (depth === 1 && waitingForOrigin) {
+                target.scale(scale, scale);
+                waitingForOrigin = false;
+              }
+            };
+          }
+          const value = target[property];
+          return typeof value === "function" ? value.bind(target) : value;
+        },
+        set(target, property, value) {
+          target[property] = value;
+          return true;
         }
-        if (property === "translate") {
-          return (x, y) => {
-            target.translate(x, y);
-            if (depth === 1 && waitingForOrigin) {
-              target.scale(scale, scale);
-              waitingForOrigin = false;
+      });
+    }
+    function installZombieSmoothing(game) {
+      const originalUpdate = typeof game.updateZombies === "function" ? game.updateZombies.bind(game) : null;
+      if (originalUpdate) {
+        game.updateZombies = function fluidZombieUpdate(dt) {
+          const result = originalUpdate(dt);
+          smoothZombieMotion(this, dt);
+          return result;
+        };
+      }
+      const originalDraw = typeof game.drawZombies === "function" ? game.drawZombies.bind(game) : null;
+      if (originalDraw) {
+        game.drawZombies = function smallerFluidZombieDraw(context, shakeX = 0, shakeY = 0) {
+          const snapshots = [];
+          for (const zombie of this.zombies || []) {
+            const motion = state.zombieMotion.get(zombie) || makeMotion(zombie);
+            snapshots.push([
+              zombie,
+              zombie.x,
+              zombie.y,
+              zombie.angle,
+              zombie.moveBlend,
+              zombie.animTime
+            ]);
+            zombie.x = motion.x;
+            zombie.y = motion.y;
+            zombie.angle = motion.angle;
+            zombie.moveBlend = motion.move;
+            zombie.animTime = motion.phase;
+          }
+          try {
+            return originalDraw(scaledZombieContext(context, ZOMBIE_VISUAL_SCALE), shakeX, shakeY);
+          } finally {
+            for (const snapshot of snapshots) {
+              const [zombie, x, y, angle, moveBlend, animTime] = snapshot;
+              zombie.x = x;
+              zombie.y = y;
+              zombie.angle = angle;
+              zombie.moveBlend = moveBlend;
+              zombie.animTime = animTime;
             }
-          };
-        }
-
-        const value = target[property];
-        return typeof value === "function" ? value.bind(target) : value;
-      },
-      set(target, property, value) {
-        target[property] = value;
-        return true;
+          }
+        };
       }
-    });
-  }
-
-  function installZombieSmoothing(game) {
-    const originalUpdate = typeof game.updateZombies === "function"
-      ? game.updateZombies.bind(game)
-      : null;
-
-    if (originalUpdate) {
-      game.updateZombies = function fluidZombieUpdate(dt) {
-        const result = originalUpdate(dt);
-        smoothZombieMotion(this, dt);
-        return result;
-      };
+      game.__hcZombieVisualScale = ZOMBIE_VISUAL_SCALE;
     }
-
-    const originalDraw = typeof game.drawZombies === "function"
-      ? game.drawZombies.bind(game)
-      : null;
-
-    if (originalDraw) {
-      game.drawZombies = function smallerFluidZombieDraw(context, shakeX = 0, shakeY = 0) {
-        const snapshots = [];
-
-        for (const zombie of this.zombies || []) {
-          const motion = state.zombieMotion.get(zombie) || makeMotion(zombie);
-          snapshots.push([
-            zombie,
-            zombie.x,
-            zombie.y,
-            zombie.angle,
-            zombie.moveBlend,
-            zombie.animTime
-          ]);
-          zombie.x = motion.x;
-          zombie.y = motion.y;
-          zombie.angle = motion.angle;
-          zombie.moveBlend = motion.move;
-          zombie.animTime = motion.phase;
-        }
-
-        try {
-          return originalDraw(scaledZombieContext(context, ZOMBIE_VISUAL_SCALE), shakeX, shakeY);
-        } finally {
-          for (const snapshot of snapshots) {
-            const [zombie, x, y, angle, moveBlend, animTime] = snapshot;
-            zombie.x = x;
-            zombie.y = y;
-            zombie.angle = angle;
-            zombie.moveBlend = moveBlend;
-            zombie.animTime = animTime;
-          }
-        }
-      };
-    }
-
-    game.__hcZombieVisualScale = ZOMBIE_VISUAL_SCALE;
-  }
-
-  function installHalfStaminaDrain(game) {
-    const originalAttack = typeof game.attack === "function"
-      ? game.attack.bind(game)
-      : null;
-
-    if (originalAttack) {
-      game.attack = function halfCostAttack(...args) {
-        const before = Number(this.player?.stamina);
-        const result = originalAttack(...args);
-        const after = Number(this.player?.stamina);
-
-        if (this.player && Number.isFinite(before) && Number.isFinite(after)) {
-          const rawCost = Math.max(0, before - after);
-          if (rawCost > 0) {
-            const refund = rawCost * 0.5;
-            this.player.stamina = Math.min(100, after + refund);
-            if (this.__hcStaminaFrame) this.__hcStaminaFrame.attackCost += rawCost - refund;
-          }
-        }
-
-        return result;
-      };
-    }
-
-    const originalUpdatePlayer = typeof game.updatePlayer === "function"
-      ? game.updatePlayer.bind(game)
-      : null;
-
-    if (originalUpdatePlayer) {
-      game.updatePlayer = function halfMovementStaminaDrain(dt) {
-        if (!this.player) return originalUpdatePlayer(dt);
-
-        const before = Number(this.player.stamina);
-        const frame = { attackCost: 0 };
-        this.__hcStaminaFrame = frame;
-        let result;
-
-        try {
-          result = originalUpdatePlayer(dt);
-        } finally {
+    function installHalfStaminaDrain(game) {
+      const originalAttack = typeof game.attack === "function" ? game.attack.bind(game) : null;
+      if (originalAttack) {
+        game.attack = function halfCostAttack(...args) {
+          const before = Number(this.player?.stamina);
+          const result = originalAttack(...args);
           const after = Number(this.player?.stamina);
           if (this.player && Number.isFinite(before) && Number.isFinite(after)) {
-            const totalLoss = Math.max(0, before - after);
-            const movementLoss = Math.max(0, totalLoss - frame.attackCost);
-            if (movementLoss > 0) {
-              this.player.stamina = Math.min(100, this.player.stamina + movementLoss * 0.5);
+            const rawCost = Math.max(0, before - after);
+            if (rawCost > 0) {
+              const refund = rawCost * 0.5;
+              this.player.stamina = Math.min(100, after + refund);
+              if (this.__hcStaminaFrame) this.__hcStaminaFrame.attackCost += rawCost - refund;
             }
           }
-          this.__hcStaminaFrame = null;
-        }
-
-        return result;
-      };
+          return result;
+        };
+      }
+      const originalUpdatePlayer = typeof game.updatePlayer === "function" ? game.updatePlayer.bind(game) : null;
+      if (originalUpdatePlayer) {
+        game.updatePlayer = function halfMovementStaminaDrain(dt) {
+          if (!this.player) return originalUpdatePlayer(dt);
+          const before = Number(this.player.stamina);
+          const frame = { attackCost: 0 };
+          this.__hcStaminaFrame = frame;
+          let result;
+          try {
+            result = originalUpdatePlayer(dt);
+          } finally {
+            const after = Number(this.player?.stamina);
+            if (this.player && Number.isFinite(before) && Number.isFinite(after)) {
+              const totalLoss = Math.max(0, before - after);
+              const movementLoss = Math.max(0, totalLoss - frame.attackCost);
+              if (movementLoss > 0) {
+                this.player.stamina = Math.min(100, this.player.stamina + movementLoss * 0.5);
+              }
+            }
+            this.__hcStaminaFrame = null;
+          }
+          return result;
+        };
+      }
+      game.__hcStaminaDrainMultiplier = 0.5;
     }
-
-    game.__hcStaminaDrainMultiplier = 0.5;
-  }
-
-  function installInventoryAndHud(game) {
-    injectStyles();
-    ensureInventoryDom(game);
-    ensureHudDom();
-
-    const originalRenderInventory = typeof game.renderInventory === "function"
-      ? game.renderInventory.bind(game)
-      : null;
-
-    if (originalRenderInventory) {
-      game.renderInventory = function upgradedInventoryRender(...args) {
-        const result = originalRenderInventory(...args);
+    function installInventoryAndHud(game) {
+      injectStyles();
+      ensureInventoryDom(game);
+      ensureHudDom();
+      const originalRenderInventory = typeof game.renderInventory === "function" ? game.renderInventory.bind(game) : null;
+      if (originalRenderInventory) {
+        game.renderInventory = function upgradedInventoryRender(...args) {
+          const result = originalRenderInventory(...args);
+          refreshInventory(this);
+          return result;
+        };
+      }
+      const originalUpdateHud = typeof game.updateHUD === "function" ? game.updateHUD.bind(game) : null;
+      if (originalUpdateHud) {
+        game.updateHUD = function upgradedHudUpdate(...args) {
+          const result = originalUpdateHud(...args);
+          updateAddonHud(this);
+          return result;
+        };
+      }
+      if (!document.__hcInventoryShortcutInstalled) {
+        document.__hcInventoryShortcutInstalled = true;
+        document.addEventListener("keydown", (event) => {
+          if (event.code !== "KeyI" || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+          const target = event.target;
+          if (target?.matches?.("input, textarea, select, [contenteditable='true']")) return;
+          if (game.mode !== "playing") return;
+          event.preventDefault();
+          game.togglePanel?.("inventoryPanel");
+        });
+      }
+      refreshInventory(game);
+    }
+    function wrapRunSetup(game, methodName) {
+      const original = typeof game[methodName] === "function" ? game[methodName].bind(game) : null;
+      if (!original) return;
+      game[methodName] = function fluidAddonRunSetup(...args) {
+        const result = original(...args);
+        state.zombieMotion = /* @__PURE__ */ new WeakMap();
+        smoothZombieMotion(this, 0);
+        ensureInventoryDom(this);
+        ensureHudDom();
         refreshInventory(this);
         return result;
       };
     }
-
-    const originalUpdateHud = typeof game.updateHUD === "function"
-      ? game.updateHUD.bind(game)
-      : null;
-
-    if (originalUpdateHud) {
-      game.updateHUD = function upgradedHudUpdate(...args) {
-        const result = originalUpdateHud(...args);
-        updateAddonHud(this);
-        return result;
-      };
+    function install(game) {
+      if (!game || game[INSTALL_FLAG]) return;
+      game[INSTALL_FLAG] = true;
+      installZombieSmoothing(game);
+      installHalfStaminaDrain(game);
+      installInventoryAndHud(game);
+      wrapRunSetup(game, "startNew");
+      wrapRunSetup(game, "loadSaved");
+      if (game.zombies?.length) smoothZombieMotion(game, 0);
+      if (game.player) refreshInventory(game);
+      game.__hcFluidAddonVersion = ADDON_VERSION;
+      game.toast?.("Fluid zombies, inventory and HUD upgrade installed.");
     }
-
-    if (!document.__hcInventoryShortcutInstalled) {
-      document.__hcInventoryShortcutInstalled = true;
-      document.addEventListener("keydown", (event) => {
-        if (event.code !== "KeyI" || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
-        const target = event.target;
-        if (target?.matches?.("input, textarea, select, [contenteditable='true']")) return;
-        if (game.mode !== "playing") return;
-        event.preventDefault();
-        game.togglePanel?.("inventoryPanel");
-      });
-    }
-
-    refreshInventory(game);
-  }
-
-  function wrapRunSetup(game, methodName) {
-    const original = typeof game[methodName] === "function" ? game[methodName].bind(game) : null;
-    if (!original) return;
-
-    game[methodName] = function fluidAddonRunSetup(...args) {
-      const result = original(...args);
-      state.zombieMotion = new WeakMap();
-      smoothZombieMotion(this, 0);
-      ensureInventoryDom(this);
-      ensureHudDom();
-      refreshInventory(this);
-      return result;
-    };
-  }
-
-  function install(game) {
-    if (!game || game[INSTALL_FLAG]) return;
-    game[INSTALL_FLAG] = true;
-
-    installZombieSmoothing(game);
-    installHalfStaminaDrain(game);
-    installInventoryAndHud(game);
-    wrapRunSetup(game, "startNew");
-    wrapRunSetup(game, "loadSaved");
-
-    if (game.zombies?.length) smoothZombieMotion(game, 0);
-    if (game.player) refreshInventory(game);
-
-    game.__hcFluidAddonVersion = ADDON_VERSION;
-    game.toast?.("Fluid zombies, inventory and HUD upgrade installed.");
-  }
-
-  if (typeof window === "undefined") return;
-  if (window.__walkers) install(window.__walkers);
-  else window.addEventListener("load", () => install(window.__walkers), { once: true });
+    if (typeof window === "undefined") return;
+    if (window.__walkers) install(window.__walkers);
+    else window.addEventListener("load", () => install(window.__walkers), { once: true });
+  })();
 })();
-
