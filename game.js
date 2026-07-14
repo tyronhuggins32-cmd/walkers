@@ -1217,50 +1217,14 @@
       signCandidates.sort((a, b) => Math.hypot(a.x - entry.x, a.y - entry.y) - Math.hypot(b.x - entry.x, b.y - entry.y));
       building.signTile = signCandidates[0] || null;
     }
-    const x1 = rect.x + 1;
-    const x2 = rect.x + rect.w - 2;
-    const y1 = rect.y + 1;
-    const y2 = rect.y + rect.h - 2;
-    const midX = rect.x + Math.floor(rect.w / 2);
-    const midY = rect.y + Math.floor(rect.h / 2);
-    if (type === "house") {
-      addPartition(world, building, "vertical", midX, y1, y2, [midY]);
-      if (rect.h >= 9) addPartition(world, building, "horizontal", rect.y + Math.floor(rect.h * 0.62), x1, midX - 1, [rect.x + 2]);
-      if (rect.w >= 16) {
-        const wingX = rect.x + Math.floor(rect.w * 0.72);
-        addPartition(world, building, "vertical", wingX, y1, y2, [rect.y + Math.floor(rect.h * 0.36)]);
-      }
-      if (rect.h >= 15) {
-        const hallY = rect.y + Math.floor(rect.h * 0.38);
-        addPartition(world, building, "horizontal", hallY, midX + 1, x2, [rect.x + Math.floor(rect.w * 0.76)]);
-      }
-    } else if (type === "grocery") {
-      addPartition(world, building, "horizontal", rect.y + rect.h - 3, x1, x2, [midX]);
-    } else if (type === "hospital") {
-      addPartition(world, building, "vertical", midX, y1, y2, [rect.y + 2, midY, rect.y + rect.h - 3]);
-      addPartition(world, building, "horizontal", midY, x1, x2, [rect.x + 2, midX, rect.x + rect.w - 3]);
-    } else if (type === "sheriff") {
-      const lobbyWall = rect.y + Math.min(3, rect.h - 3);
-      addPartition(world, building, "horizontal", lobbyWall, x1, x2, [midX]);
-      addPartition(world, building, "vertical", midX, lobbyWall + 1, y2, [Math.min(y2, lobbyWall + 2)]);
-    } else if (type === "prison") {
-      if (variant === "courtyard_block") {
-        addDoor(world, building, midX, rect.y + 2, "north", false, "barred");
-        addDoor(world, building, midX, rect.y + rect.h - 3, "south", false, "barred");
-        for (const cell of building.cells) {
-          const innerEdge = cell.x === rect.x + 2 || cell.x === rect.x + rect.w - 3 || cell.y === rect.y + 2 || cell.y === rect.y + rect.h - 3;
-          if (innerEdge && getTile(world, cell.x, cell.y) === TILE.WALL && (cell.x + cell.y) % 2 === 0) building.barTiles.push({ x: cell.x, y: cell.y });
-        }
-      } else {
-        addPartition(world, building, "vertical", midX, y1, y2, [rect.y + 2, midY, rect.y + rect.h - 3]);
-        for (let y = rect.y + 3; y < rect.y + rect.h - 2; y += 3) {
-          addPartition(world, building, "horizontal", y, x1, midX - 1, [midX - 2]);
-          addPartition(world, building, "horizontal", y, midX + 1, x2, [midX + 2]);
-        }
-      }
-    } else if (type === "warehouse") {
-      addPartition(world, building, "vertical", rect.x + Math.min(3, rect.w - 3), y1, rect.y + Math.min(4, rect.h - 2), [rect.y + 2]);
-    }
+   const interiorVariant = designBuildingInterior(
+  world,
+  building,
+  rect,
+  type,
+  rng,
+  variant
+);
     if (floorCount === 2) {
       const exteriorDoorKeys = new Set(building.doors.filter((door) => door.exterior).map((door) => `${door.x},${door.y}`));
       const stairCandidates = building.cells.filter((cell) => {
