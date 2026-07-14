@@ -5991,23 +5991,17 @@ flashlight: false
       touchButton.textContent = action;
       touchButton.classList.add("ready");
     }
-  {
-      this.nearestInteractable = this.nearestWorldInteractable();
-      const prompt = $("#interactPrompt");
-      const touchButton = document.querySelector('[data-action="interact"]');
-      if (!this.nearestInteractable || this.panelOpen || this.mode !== "playing") {
-        prompt.classList.add("hidden");
-        touchButton.textContent = "SEARCH";
-        touchButton.classList.remove("ready");
-        return;
-      }
-      prompt.classList.remove("hidden");
-      const action = this.nearestInteractable.source === "door" ? this.nearestInteractable.ref.open ? "CLOSE" : "OPEN" : this.nearestInteractable.ref.searched ? "OPEN" : "LOOT";
-      prompt.querySelector("span").textContent = `${action} ${String(this.nearestInteractable.kind || "container").replaceAll("_", " ").toUpperCase()}`;
-      touchButton.textContent = action;
-      touchButton.classList.add("ready");
-    }
+    
     updateLocation() {
+      if (this.player.floorLevel === 1) {
+  const current = this.currentUpperFloor();
+
+  $("#locationLabel").textContent = current
+    ? `SECOND FLOOR • ${current.upper.name.toUpperCase()}`
+    : "SECOND FLOOR";
+
+  return;
+}
       const tx = Math.floor(this.player.x / TILE_SIZE);
       const ty = Math.floor(this.player.y / TILE_SIZE);
       const building = this.buildingLookup.get(`${tx},${ty}`);
