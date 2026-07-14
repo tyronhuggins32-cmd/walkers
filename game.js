@@ -5490,6 +5490,60 @@
       face(ctx, bodyX + fx * 2, bodyY - 13 + fy, side, look, special === "runner" ? 0.9 : 1, attack ? 3 : 1.5);
       typeTag(ctx, zombie, -51);
     }
+    function drawBasicWalker(ctx, zombie, look, phase, move, fx, fy) {
+      const side = fx >= 0 ? 1 : -1;
+      const stride = Math.sin(phase) * move * 3.7;
+      const lift = Math.max(0, Math.cos(phase)) * move * 1.2;
+      const bodyX = fx * 1.8;
+      const bodyY = -27 + lift;
+      const attacking = zombie.attackAnim > 0 || zombie.state === "chase" || zombie.state === "bash";
+      const reach = attacking ? 21 : 12;
+      const shirtTone = ["#924a22", "#7f4225", "#9b5126", "#713a23"][Math.floor(hash(`${zombie.id}:rust`) * 4)];
+      const shirtDark = ["#5c2e1c", "#51291b", "#65321c", "#49251a"][Math.floor(hash(`${zombie.id}:rust-dark`) * 4)];
+      const denim = ["#263f50", "#2d4554", "#243849", "#30434d"][Math.floor(hash(`${zombie.id}:denim`) * 4)];
+      shadow(ctx, 18, 6.5);
+      const leftKnee = { x: -5 + fx * stride * 0.35, y: -7 + fy * stride * 0.14 };
+      const rightKnee = { x: 5 - fx * stride * 0.35, y: -7 - fy * stride * 0.14 };
+      const leftFoot = { x: -7 + fx * stride, y: 2 + fy * stride * 0.34 };
+      const rightFoot = { x: 7 - fx * stride, y: 2 - fy * stride * 0.34 };
+      limb(ctx, -5, -15, leftKnee.x, leftKnee.y, 7, denim, denim);
+      limb(ctx, 5, -15, rightKnee.x, rightKnee.y, 7, denim, denim);
+      limb(ctx, leftKnee.x, leftKnee.y, leftFoot.x, leftFoot.y, 5.5, look.skin2, look.skin);
+      limb(ctx, rightKnee.x, rightKnee.y, rightFoot.x, rightFoot.y, 5.5, look.skin2, look.skin);
+      ctx.fillStyle = "#1b2b22";
+      ctx.fillRect(Math.round(leftFoot.x - 6 + side), Math.round(leftFoot.y - 2), 11, 6);
+      ctx.fillRect(Math.round(rightFoot.x - 6 + side), Math.round(rightFoot.y - 2), 11, 6);
+      ctx.fillStyle = look.skin;
+      ctx.fillRect(Math.round(leftFoot.x - 4 + side), Math.round(leftFoot.y - 1), 8, 4);
+      ctx.fillRect(Math.round(rightFoot.x - 4 + side), Math.round(rightFoot.y - 1), 8, 4);
+      const reachShoulder = { x: bodyX + side * 9, y: bodyY - 4 };
+      const reachElbow = { x: bodyX + side * 13 + fx * reach * 0.42, y: bodyY + 1 + fy * reach * 0.34 };
+      const reachHand = { x: bodyX + side * 12 + fx * reach, y: bodyY + 4 + fy * reach * 0.62 };
+      const hangingShoulder = { x: bodyX - side * 9, y: bodyY - 3 };
+      const hangingElbow = { x: bodyX - side * 12, y: bodyY + 10 };
+      const hangingHand = { x: bodyX - side * 11 + Math.sin(phase) * 1.4, y: bodyY + 20 };
+      limb(ctx, reachShoulder.x, reachShoulder.y, reachElbow.x, reachElbow.y, 7, shirtDark, look.skin2);
+      limb(ctx, reachElbow.x, reachElbow.y, reachHand.x, reachHand.y, 5.5, look.skin2, look.skin);
+      limb(ctx, hangingShoulder.x, hangingShoulder.y, hangingElbow.x, hangingElbow.y, 7, shirtDark, look.skin2);
+      limb(ctx, hangingElbow.x, hangingElbow.y, hangingHand.x, hangingHand.y, 5.5, look.skin2, look.skin);
+      ctx.fillStyle = look.skin2;
+      for (const finger of [-2, 1, 4]) ctx.fillRect(Math.round(reachHand.x + side * 2), Math.round(reachHand.y + finger), 5, 2);
+      ctx.fillStyle = "#202720";
+      ctx.fillRect(Math.round(bodyX - 12), Math.round(bodyY - 10), 24, 25);
+      ctx.fillStyle = shirtTone;
+      ctx.fillRect(Math.round(bodyX - 10), Math.round(bodyY - 8), 20, 20);
+      ctx.fillRect(Math.round(bodyX - 8), Math.round(bodyY + 10), 5, 5);
+      ctx.fillRect(Math.round(bodyX - 1), Math.round(bodyY + 9), 5, 7);
+      ctx.fillRect(Math.round(bodyX + 6), Math.round(bodyY + 10), 3, 4);
+      ctx.fillStyle = shirtDark;
+      ctx.fillRect(Math.round(bodyX - 8), Math.round(bodyY - 6), 5, 4);
+      ctx.fillRect(Math.round(bodyX + 3), Math.round(bodyY + 1), 4, 3);
+      ctx.fillStyle = look.wound;
+      ctx.fillRect(Math.round(bodyX - 2), Math.round(bodyY + 5), 6, 3);
+      face(ctx, bodyX + fx * 2.5, bodyY - 19 + fy * 1.5, side, look, 1.28, attacking ? 6 : 5);
+      ctx.fillStyle = look.rot;
+      ctx.fillRect(Math.round(bodyX - side * 7), Math.round(bodyY - 25), 3, 5);
+    }
     function drawBrute(ctx, zombie, look, phase, move, fx, fy) {
       const side = fx >= 0 ? 1 : -1;
       const stomp = Math.sin(phase) * move * 3;
@@ -5613,6 +5667,7 @@
           if (zombie.zombieType === "brute") drawBrute(ctx, zombie, look, phase, move, fx, fy);
           else if (zombie.zombieType === "sploder") drawSploder(ctx, zombie, look, phase, move, fx, fy);
           else if (zombie.zombieType === "crawler") drawCrawler(ctx, zombie, look, phase, move, fx, fy);
+          else if (zombie.zombieType === "normal") drawBasicWalker(ctx, zombie, look, phase, move, fx, fy);
           else drawNormal(ctx, zombie, look, phase, move, fx, fy, zombie.zombieType);
           ctx.filter = "none";
           ctx.restore();
