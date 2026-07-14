@@ -1,261 +1,320 @@
 (() => {
   "use strict";
 
-  const FLAG = "__hcHudZombie30V2";
-  const MULTIPLIER = 1.30;
-  const clamp = (n, min, max) => Math.max(min, Math.min(max, n));
+  /*
+    Hollow County Clean Survival HUD
 
-  function hash(text) {
-    let h = 2166136261;
+    Layout:
+    - Minimal time at the top
+    - Objective at the upper-left
+    - Minimap at the upper-right
+    - Survival condition at the lower-left
+    - Minecraft-style five-slot hotbar at the bottom
+    - No separate gun HUD covering the hotbar
+    - Keeps the 30% zombie population increase
+  */
 
-    for (const c of String(text)) {
-      h ^= c.charCodeAt(0);
-      h = Math.imul(h, 16777619);
+  const INSTALL_FLAG = "__hcCleanSurvivalHudV3";
+  const ZOMBIE_INCREASE = 0.30;
+
+  const clamp = (value, min, max) =>
+    Math.max(min, Math.min(max, value));
+
+  function hash01(text) {
+    let hash = 2166136261;
+
+    for (const character of String(text)) {
+      hash ^= character.charCodeAt(0);
+      hash = Math.imul(hash, 16777619);
     }
 
-    return (h >>> 0) / 4294967295;
+    return (hash >>> 0) / 4294967295;
   }
 
   function addStyles() {
-    if (document.getElementById("hcHudV2Styles")) return;
+    if (document.getElementById("hcCleanHudStyles")) {
+      return;
+    }
 
     const style = document.createElement("style");
-    style.id = "hcHudV2Styles";
+    style.id = "hcCleanHudStyles";
 
     style.textContent = `
       :root {
-        --hc-bg: rgba(7, 12, 9, .92);
-        --hc-bg2: rgba(20, 28, 22, .9);
-        --hc-line: rgba(211, 222, 201, .18);
-        --hc-text: #e7eadf;
-        --hc-muted: #7f8b82;
-        --hc-gold: #d1c47e;
-        --hc-red: #d06459;
-        --hc-green: #91a874;
+        --clean-dark: rgba(7, 11, 8, .90);
+        --clean-panel: rgba(19, 26, 20, .88);
+        --clean-border: rgba(218, 225, 208, .17);
+        --clean-text: #e7e9df;
+        --clean-muted: #899289;
+        --clean-green: #8fa477;
+        --clean-gold: #d0c17c;
+        --clean-red: #ca5e55;
       }
 
-      #game {
-        --hc-threat: 0%;
+      /*
+       * Remove the old extra overlays.
+       * Gun ammunition remains visible inside the hotbar.
+       */
+      #gunHud,
+      #hcThreatHud,
+      .hc-hud-state {
+        display: none !important;
       }
 
       #game::after {
-        content: "";
-        position: absolute;
-        inset: 0;
-        z-index: 3;
-        pointer-events: none;
-        background:
-          linear-gradient(
-            180deg,
-            rgba(0, 0, 0, .28),
-            transparent 18%,
-            transparent 76%,
-            rgba(0, 0, 0, .35)
-          ),
-          radial-gradient(
-            circle at center,
-            transparent 55%,
-            rgba(0, 0, 0, .2)
-          );
+        content: none !important;
       }
 
+      /*
+       * Top HUD: no giant bar across the screen.
+       */
       #game .hud-top {
-        top: 10px !important;
-        left: 50% !important;
-        right: auto !important;
-        width: min(760px, calc(100% - 28px)) !important;
-        height: 58px !important;
-        display: grid !important;
-        grid-template-columns: 1fr auto 1fr !important;
-        align-items: center !important;
-        gap: 12px !important;
-        padding: 7px 10px !important;
-        transform: translateX(-50%);
-        border: 1px solid var(--hc-line) !important;
-        border-radius: 9px !important;
-        background:
-          linear-gradient(
-            180deg,
-            var(--hc-bg2),
-            var(--hc-bg)
-          ) !important;
-        box-shadow:
-          0 12px 30px rgba(0, 0, 0, .35),
-          inset 0 1px rgba(255, 255, 255, .04) !important;
-        backdrop-filter: blur(8px);
-      }
-
-      #game .location-readout {
-        grid-column: 1;
-        min-width: 0;
-        text-align: left !important;
-      }
-
-      #game .location-readout span {
-        display: block;
-        overflow: hidden;
-        color: var(--hc-text) !important;
-        font: 900 8px/1.2 system-ui !important;
-        letter-spacing: .1em !important;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      #game .location-readout small {
-        color: #68746b !important;
-        font: 800 6px/1 system-ui !important;
+        top: 0 !important;
+        left: 0 !important;
+        right: 0 !important;
+        width: 100% !important;
+        height: 72px !important;
+        padding: 0 !important;
+        border: 0 !important;
+        border-radius: 0 !important;
+        background: transparent !important;
+        box-shadow: none !important;
+        backdrop-filter: none !important;
+        pointer-events: none;
       }
 
       #game .day-readout {
-        grid-column: 2;
-        display: grid !important;
-        grid-template-columns: auto auto !important;
+        position: absolute !important;
+        top: 10px !important;
+        left: 50% !important;
+        display: flex !important;
         align-items: center !important;
-        gap: 4px 9px !important;
-        text-align: center;
+        gap: 9px !important;
+        padding: 7px 11px !important;
+        transform: translateX(-50%) !important;
+        border: 1px solid var(--clean-border) !important;
+        border-radius: 5px !important;
+        background:
+          linear-gradient(
+            180deg,
+            rgba(27, 35, 28, .91),
+            var(--clean-dark)
+          ) !important;
+        box-shadow: 0 8px 22px rgba(0, 0, 0, .34) !important;
+        pointer-events: auto;
+        backdrop-filter: blur(6px);
       }
 
       #game .day-readout span {
-        color: var(--hc-gold) !important;
+        color: var(--clean-gold) !important;
         font: 900 7px/1 system-ui !important;
-        letter-spacing: .16em !important;
+        letter-spacing: .13em !important;
       }
 
       #game .day-readout strong {
-        grid-column: 2;
-        grid-row: 1 / 3;
-        color: var(--hc-text) !important;
-        font: 950 22px/1 system-ui !important;
+        color: var(--clean-text) !important;
+        font: 950 18px/1 system-ui !important;
         font-variant-numeric: tabular-nums;
-        text-shadow: 0 3px 12px #000;
+        text-shadow: 0 2px 8px #000;
       }
 
       #game .day-readout small {
-        color: var(--hc-muted) !important;
+        color: var(--clean-muted) !important;
         font: 800 6px/1 system-ui !important;
+        letter-spacing: .08em !important;
+      }
+
+      #game .location-readout {
+        position: absolute !important;
+        top: 50px !important;
+        left: 50% !important;
+        width: 270px !important;
+        transform: translateX(-50%) !important;
+        text-align: center !important;
+        pointer-events: none;
+      }
+
+      #game .location-readout span {
+        display: block !important;
+        overflow: hidden;
+        color: rgba(231, 233, 223, .82) !important;
+        font: 900 7px/1 system-ui !important;
+        letter-spacing: .12em !important;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        text-shadow: 0 2px 6px #000;
+      }
+
+      #game .location-readout small {
+        display: none !important;
       }
 
       #game .hud-actions {
-        grid-column: 3;
-        justify-self: end;
+        position: absolute !important;
+        top: 12px !important;
+        right: 14px !important;
+        display: flex !important;
         gap: 5px !important;
+        pointer-events: auto;
       }
 
       #game .hud-actions button {
-        min-height: 34px !important;
+        min-height: 32px !important;
         padding: 0 9px !important;
-        color: #adb7ac !important;
-        border: 1px solid rgba(205, 216, 194, .14) !important;
+        color: #b8c0b7 !important;
+        border: 1px solid var(--clean-border) !important;
         border-radius: 4px !important;
         background:
           linear-gradient(
             180deg,
-            rgba(42, 52, 43, .72),
-            rgba(12, 18, 14, .82)
+            rgba(37, 47, 39, .88),
+            rgba(10, 15, 11, .91)
           ) !important;
+        box-shadow: 0 5px 13px rgba(0, 0, 0, .25) !important;
         font: 900 7px/1 system-ui !important;
-        letter-spacing: .07em !important;
+        letter-spacing: .06em !important;
       }
 
       #game .hud-actions kbd {
-        color: var(--hc-gold) !important;
+        color: var(--clean-gold) !important;
         border: 0 !important;
         background: transparent !important;
         font-size: 6px !important;
       }
 
-      #game .vitals {
-        top: 84px !important;
+      /*
+       * Objective: small card in an unused corner.
+       */
+      #game .objective {
+        top: 86px !important;
         left: 14px !important;
-        width: 224px !important;
-        display: grid !important;
-        gap: 8px !important;
-        padding: 13px 14px !important;
-        border: 1px solid var(--hc-line) !important;
-        border-radius: 10px 10px 10px 2px !important;
+        right: auto !important;
+        width: 210px !important;
+        padding: 10px 11px !important;
+        border: 1px solid var(--clean-border) !important;
+        border-left: 3px solid var(--clean-green) !important;
+        border-radius: 2px 6px 6px 2px !important;
         background:
           linear-gradient(
             145deg,
-            var(--hc-bg2),
-            var(--hc-bg)
+            var(--clean-panel),
+            var(--clean-dark)
           ) !important;
-        box-shadow:
-          0 14px 34px rgba(0, 0, 0, .36) !important;
-        backdrop-filter: blur(8px);
+        box-shadow: 0 8px 22px rgba(0, 0, 0, .3) !important;
+        backdrop-filter: blur(6px);
+      }
+
+      #game .objective span {
+        color: var(--clean-gold) !important;
+        font: 900 6px/1 system-ui !important;
+        letter-spacing: .14em !important;
+      }
+
+      #game .objective p {
+        margin-top: 6px !important;
+        color: #b8c0b6 !important;
+        font: 700 8px/1.35 system-ui !important;
+      }
+
+      /*
+       * Minimap.
+       */
+      #game .minimap-wrap {
+        top: 58px !important;
+        right: 14px !important;
+        width: 140px !important;
+        padding: 6px !important;
+        border: 1px solid var(--clean-border) !important;
+        border-radius: 6px !important;
+        background:
+          linear-gradient(
+            145deg,
+            var(--clean-panel),
+            var(--clean-dark)
+          ) !important;
+        box-shadow: 0 9px 24px rgba(0, 0, 0, .34) !important;
+        backdrop-filter: blur(6px);
+      }
+
+      #game .minimap-wrap canvas {
+        width: 126px !important;
+        height: 126px !important;
+        border: 1px solid rgba(220, 228, 211, .13) !important;
+        border-radius: 2px !important;
+        filter:
+          saturate(.72)
+          contrast(1.09)
+          brightness(.9);
+      }
+
+      #game .minimap-wrap > span {
+        display: block !important;
+        margin-top: 5px !important;
+        color: var(--clean-muted) !important;
+        font: 900 6px/1 system-ui !important;
+        letter-spacing: .12em !important;
+        text-align: center !important;
+      }
+
+      /*
+       * Bottom-left survival information.
+       */
+      #game .vitals {
+        top: auto !important;
+        bottom: 16px !important;
+        left: 14px !important;
+        width: 210px !important;
+        display: grid !important;
+        gap: 6px !important;
+        padding: 10px 11px !important;
+        border: 1px solid var(--clean-border) !important;
+        border-radius: 6px !important;
+        background:
+          linear-gradient(
+            145deg,
+            var(--clean-panel),
+            var(--clean-dark)
+          ) !important;
+        box-shadow: 0 10px 28px rgba(0, 0, 0, .36) !important;
+        backdrop-filter: blur(6px);
       }
 
       #game .vitals::before {
-        content: "SURVIVOR CONDITION";
-        padding-bottom: 9px;
-        color: #8a9688;
-        border-bottom: 1px solid rgba(205, 216, 194, .12);
-        font: 900 7px/1 system-ui;
-        letter-spacing: .16em;
+        content: none !important;
       }
 
       #game .vital {
         display: grid !important;
-        grid-template-columns: 58px 1fr 26px !important;
+        grid-template-columns: 49px 1fr 23px !important;
         align-items: center !important;
-        gap: 7px !important;
+        gap: 6px !important;
       }
 
       #game .vital > span {
-        color: #aeb7ad !important;
-        font: 900 7px/1 system-ui !important;
-        letter-spacing: .07em !important;
-      }
-
-      #game .vital > span::before {
-        display: inline-block;
-        width: 12px;
-        margin-right: 4px;
-        text-align: center;
-      }
-
-      #game .vital.health > span::before {
-        content: "✚";
-        color: #d46b61;
-      }
-
-      #game .vital.stamina > span::before {
-        content: "↯";
-        color: #d1c47e;
-      }
-
-      #game .vital.hunger > span::before {
-        content: "◆";
-        color: #91a874;
-      }
-
-      #game .vital.thirst > span::before {
-        content: "●";
-        color: #70a5af;
-      }
-
-      #game .vital.infection > span::before {
-        content: "☣";
-        color: #b7799f;
+        color: #aab3aa !important;
+        font: 900 6px/1 system-ui !important;
+        letter-spacing: .05em !important;
       }
 
       #game .vital > div {
-        height: 7px !important;
+        height: 6px !important;
         overflow: hidden;
         border: 1px solid rgba(255, 255, 255, .045) !important;
         border-radius: 1px !important;
-        background: rgba(0, 0, 0, .52) !important;
+        background: rgba(0, 0, 0, .55) !important;
       }
 
       #game .vital i {
         border-radius: 0 !important;
+        box-shadow: none !important;
       }
 
       #game .vital.health i {
         background:
           linear-gradient(
             90deg,
-            #783b35,
-            #d06459
+            #753831,
+            var(--clean-red)
           ) !important;
       }
 
@@ -263,8 +322,8 @@
         background:
           linear-gradient(
             90deg,
-            #796d3c,
-            #d1c47e
+            #756b3c,
+            var(--clean-gold)
           ) !important;
       }
 
@@ -272,8 +331,8 @@
         background:
           linear-gradient(
             90deg,
-            #506342,
-            #91a874
+            #506141,
+            var(--clean-green)
           ) !important;
       }
 
@@ -281,8 +340,8 @@
         background:
           linear-gradient(
             90deg,
-            #41676e,
-            #70a5af
+            #3f686f,
+            #72a8b0
           ) !important;
       }
 
@@ -290,269 +349,154 @@
         background:
           linear-gradient(
             90deg,
-            #68435f,
-            #b7799f
+            #68405f,
+            #b46e9d
           ) !important;
       }
 
       #game .vital b {
         color: #dce0d7 !important;
-        font: 900 8px/1 system-ui !important;
+        font: 900 7px/1 system-ui !important;
         font-variant-numeric: tabular-nums;
       }
 
-      #hcThreatHud {
+      /*
+       * Small contextual status instead of another large threat panel.
+       */
+      #hcCleanStatus {
         position: absolute;
         left: 14px;
-        bottom: 18px;
-        z-index: 25;
-        width: 224px;
-        padding: 10px 13px;
-        pointer-events: none;
-        border: 1px solid var(--hc-line);
-        border-radius: 2px 10px 10px 10px;
-        background:
-          linear-gradient(
-            145deg,
-            var(--hc-bg2),
-            var(--hc-bg)
-          );
-        box-shadow:
-          0 14px 32px rgba(0, 0, 0, .34);
-        backdrop-filter: blur(8px);
-      }
-
-      .hc-threat-head,
-      .hc-threat-foot {
+        bottom: 154px;
+        z-index: 24;
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 8px;
-      }
-
-      .hc-threat-head span {
-        color: #78847b;
+        gap: 7px;
+        max-width: 210px;
+        padding: 6px 8px;
+        color: #aeb7ad;
+        border: 1px solid rgba(218, 225, 208, .13);
+        border-radius: 4px;
+        background: rgba(7, 11, 8, .8);
+        box-shadow: 0 6px 17px rgba(0, 0, 0, .26);
         font: 900 6px/1 system-ui;
-        letter-spacing: .15em;
+        letter-spacing: .08em;
+        pointer-events: none;
+        backdrop-filter: blur(5px);
       }
 
-      #hcThreatLabel {
-        color: #b9c6ab;
-        font: 950 8px/1 system-ui;
-        letter-spacing: .09em;
+      #hcCleanStatus::before {
+        content: "";
+        width: 6px;
+        height: 6px;
+        flex: 0 0 auto;
+        border-radius: 50%;
+        background: var(--clean-green);
+        box-shadow: 0 0 7px rgba(143, 164, 119, .65);
       }
 
-      .hc-threat-track {
-        height: 5px;
-        margin: 8px 0;
-        overflow: hidden;
-        border: 1px solid rgba(255, 255, 255, .045);
-        background: rgba(0, 0, 0, .54);
+      #hcCleanStatus.warning::before {
+        background: var(--clean-gold);
+        box-shadow: 0 0 7px rgba(208, 193, 124, .65);
       }
 
-      #hcThreatFill {
-        display: block;
-        width: var(--hc-threat);
-        height: 100%;
-        background:
-          linear-gradient(
-            90deg,
-            #667c56,
-            #d0bd6f 58%,
-            #d05d52
-          );
-        transition: width .15s linear;
+      #hcCleanStatus.danger::before {
+        background: var(--clean-red);
+        box-shadow: 0 0 8px rgba(202, 94, 85, .72);
       }
 
-      #hcMoveLabel,
-      #hcWeaponLabel {
-        overflow: hidden;
-        color: #b8c1b6;
-        font: 900 7px/1 system-ui;
-        letter-spacing: .07em;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-
-      #game.hc-danger #hcThreatHud {
-        border-color: rgba(208, 93, 82, .46);
-        box-shadow:
-          0 14px 32px rgba(0, 0, 0, .34),
-          0 0 20px rgba(208, 93, 82, .12);
-      }
-
-      #game.hc-danger #hcThreatLabel {
-        color: #e17a70;
-      }
-
-      #game .minimap-wrap {
-        top: 84px !important;
-        right: 14px !important;
-        width: 174px !important;
-        padding: 8px !important;
-        border: 1px solid var(--hc-line) !important;
-        border-radius: 10px 10px 2px 10px !important;
-        background:
-          linear-gradient(
-            145deg,
-            var(--hc-bg2),
-            var(--hc-bg)
-          ) !important;
-        box-shadow:
-          0 14px 34px rgba(0, 0, 0, .36) !important;
-        backdrop-filter: blur(8px);
-      }
-
-      #game .minimap-wrap::before {
-        content: "LOCAL AREA";
-        display: block;
-        padding: 1px 3px 7px;
-        color: #899487;
-        font: 900 7px/1 system-ui;
-        letter-spacing: .15em;
-      }
-
-      #game .minimap-wrap canvas {
-        width: 156px !important;
-        height: 156px !important;
-        border: 1px solid rgba(213, 221, 203, .14) !important;
-        border-radius: 3px !important;
-        filter:
-          saturate(.78)
-          contrast(1.08)
-          brightness(.9);
-      }
-
-      #game .minimap-wrap > span {
-        display: none !important;
-      }
-
-      #game .objective {
-        top: 278px !important;
-        right: 14px !important;
-        width: 174px !important;
-        padding: 11px !important;
-        border: 1px solid rgba(204, 215, 193, .14) !important;
-        border-left: 3px solid var(--hc-green) !important;
-        border-radius: 2px 8px 8px 2px !important;
-        background:
-          linear-gradient(
-            145deg,
-            var(--hc-bg2),
-            var(--hc-bg)
-          ) !important;
-        box-shadow:
-          0 10px 26px rgba(0, 0, 0, .28) !important;
-      }
-
-      #game .objective span {
-        color: var(--hc-gold) !important;
-        font: 900 7px/1 system-ui !important;
-        letter-spacing: .15em !important;
-      }
-
-      #game .objective p {
-        margin-top: 7px !important;
-        color: #b8c1b6 !important;
-        font: 700 9px/1.35 system-ui !important;
-      }
-
+      /*
+       * Minecraft-style hotbar.
+       */
       #game .hotbar {
         left: 50% !important;
-        bottom: 14px !important;
-        z-index: 27 !important;
+        bottom: 15px !important;
+        z-index: 28 !important;
         display: grid !important;
-        grid-template-columns: repeat(5, 54px) !important;
-        gap: 4px !important;
-        padding: 6px !important;
+        grid-template-columns: repeat(5, 52px) !important;
+        gap: 3px !important;
+        padding: 5px !important;
         transform: translateX(-50%) !important;
         border: 2px solid rgba(4, 7, 5, .96) !important;
-        border-radius: 5px !important;
-        background: rgba(8, 12, 9, .82) !important;
+        border-radius: 3px !important;
+        background: rgba(9, 13, 10, .82) !important;
         box-shadow:
-          0 12px 32px rgba(0, 0, 0, .44),
-          inset 0 0 0 1px rgba(204, 215, 193, .11) !important;
-        backdrop-filter: blur(6px);
+          0 10px 28px rgba(0, 0, 0, .42),
+          inset 0 0 0 1px rgba(218, 225, 208, .1) !important;
+        backdrop-filter: blur(5px);
       }
 
       #game .hot-slot {
         position: relative;
-        width: 54px !important;
-        height: 54px !important;
+        width: 52px !important;
+        height: 52px !important;
         padding: 0 !important;
-        overflow: visible !important;
-        border: 2px solid #303a31 !important;
-        border-radius: 2px !important;
+        border: 2px solid #364037 !important;
+        border-radius: 1px !important;
         background:
           linear-gradient(
             145deg,
-            rgba(54, 65, 54, .92),
-            rgba(15, 21, 16, .97)
+            rgba(54, 64, 54, .93),
+            rgba(15, 20, 16, .97)
           ) !important;
         box-shadow:
-          inset 0 0 0 2px rgba(0, 0, 0, .32) !important;
+          inset 0 0 0 2px rgba(0, 0, 0, .31) !important;
+        transition:
+          transform .1s,
+          border-color .1s;
       }
 
       #game .hot-slot.selected {
         z-index: 2;
-        border-color: #e4dfbc !important;
+        border-color: #ebe5bd !important;
         background:
           linear-gradient(
             145deg,
-            rgba(91, 104, 77, .98),
-            rgba(25, 34, 25, .98)
+            rgba(89, 103, 76, .98),
+            rgba(24, 32, 25, .98)
           ) !important;
         box-shadow:
-          0 0 0 2px rgba(208, 195, 132, .24),
-          0 0 18px rgba(203, 193, 125, .2) !important;
-        transform: translateY(-3px) scale(1.06);
+          0 0 0 2px rgba(208, 193, 124, .24),
+          0 0 14px rgba(208, 193, 124, .17) !important;
+        transform: translateY(-3px);
       }
 
       #game .hot-slot .slot-number {
         top: 3px !important;
         left: 4px !important;
-        color: #8a968b !important;
-        font: 900 7px/1 system-ui !important;
+        color: #899489 !important;
+        font: 900 6px/1 system-ui !important;
       }
 
       #game .hot-slot .item-icon {
-        color: #e5e7dc !important;
-        font: 950 10px/1 system-ui !important;
+        color: var(--clean-text) !important;
+        font: 950 9px/1 system-ui !important;
         text-shadow: 0 2px 6px #000;
       }
 
       #game .hot-slot small {
         right: 4px !important;
         bottom: 4px !important;
-        color: #f1e4ad !important;
-        font: 950 8px/1 system-ui !important;
+        color: #eee2ab !important;
+        font: 950 7px/1 system-ui !important;
       }
 
-      #gunHud {
-        bottom: 82px !important;
-        border-radius: 5px !important;
-        background:
-          linear-gradient(
-            180deg,
-            var(--hc-bg2),
-            var(--hc-bg)
-          ) !important;
-      }
-
+      /*
+       * Keep inventory and loot panels readable.
+       */
       #game .side-panel,
       #game .modal-card,
       #game .death-card {
-        border-color: rgba(205, 216, 194, .18) !important;
+        border-color: var(--clean-border) !important;
         background:
           radial-gradient(
             circle at 100% 0,
-            rgba(143, 161, 117, .08),
-            transparent 34%
+            rgba(143, 164, 119, .07),
+            transparent 35%
           ),
           linear-gradient(
             180deg,
-            #111914,
-            #080d0a 76%
+            #111813,
+            #080c09 76%
           ) !important;
       }
 
@@ -562,153 +506,110 @@
         background:
           linear-gradient(
             145deg,
-            rgba(29, 39, 31, .65),
+            rgba(29, 38, 31, .65),
             rgba(9, 14, 11, .76)
           ) !important;
       }
 
-      @media (max-width: 900px) {
-        #game .hud-top {
-          top: 7px !important;
-          width: calc(100% - 14px) !important;
-          height: 54px !important;
-        }
-
-        #game .day-readout strong {
-          font-size: 18px !important;
-        }
-
-        #game .location-readout small {
-          display: none;
-        }
-
-        #game .vitals {
-          top: 70px !important;
-          left: 8px !important;
-          width: 190px !important;
-          padding: 10px 11px !important;
-        }
-
-        #game .vital {
-          grid-template-columns: 51px 1fr 23px !important;
-          gap: 6px !important;
-        }
-
-        #game .vital > span {
-          font-size: 6px !important;
-        }
-
-        #game .minimap-wrap {
-          top: 70px !important;
-          right: 8px !important;
-          width: 136px !important;
-          padding: 6px !important;
-        }
-
-        #game .minimap-wrap canvas {
-          width: 122px !important;
-          height: 122px !important;
-        }
-
-        #game .objective {
-          top: 223px !important;
-          right: 8px !important;
-          width: 136px !important;
-          padding: 9px !important;
-        }
-
-        #hcThreatHud {
-          left: 8px;
-          bottom: 92px;
-          width: 190px;
-        }
-
-        #game .hotbar {
-          bottom: 10px !important;
-          grid-template-columns: repeat(5, 46px) !important;
-          gap: 3px !important;
-          padding: 5px !important;
-        }
-
-        #game .hot-slot {
-          width: 46px !important;
-          height: 46px !important;
-        }
-
-        #gunHud {
-          bottom: 69px !important;
-        }
-      }
-
-      @media (max-width: 620px) and (orientation: portrait) {
-        #game .hud-top {
-          grid-template-columns: minmax(0, 1fr) auto !important;
-        }
-
-        #game .location-readout {
-          grid-column: 1;
-        }
-
-        #game .day-readout {
-          grid-column: 2;
-        }
-
-        #game .day-readout small,
-        #game .day-readout span {
-          display: none !important;
-        }
-
-        #game .day-readout strong {
-          grid-column: 1;
-          font-size: 17px !important;
-        }
-
+      /*
+       * Mobile layout keeps controls separated.
+       */
+      @media (max-width: 760px) {
         #game .hud-actions {
           display: none !important;
         }
 
-        #game .vitals {
-          width: 174px !important;
+        #game .day-readout {
+          top: 7px !important;
+          padding: 6px 9px !important;
         }
 
-        #game .vitals::before {
-          content: "CONDITION";
+        #game .day-readout strong {
+          font-size: 16px !important;
         }
 
-        #game .minimap-wrap {
-          width: 112px !important;
+        #game .day-readout small {
+          display: none !important;
         }
 
-        #game .minimap-wrap canvas {
-          width: 98px !important;
-          height: 98px !important;
+        #game .location-readout {
+          top: 43px !important;
+          width: 175px !important;
         }
 
         #game .objective {
-          top: 198px !important;
-          width: 112px !important;
+          display: none !important;
         }
 
-        #game .objective p {
-          font-size: 8px !important;
+        #game .minimap-wrap {
+          top: 68px !important;
+          right: 8px !important;
+          width: 106px !important;
+          padding: 5px !important;
         }
 
-        #hcThreatHud {
-          width: 174px;
-          bottom: 104px;
+        #game .minimap-wrap canvas {
+          width: 94px !important;
+          height: 94px !important;
+        }
+
+        #game .vitals {
+          top: 68px !important;
+          bottom: auto !important;
+          left: 8px !important;
+          width: 168px !important;
+          gap: 5px !important;
+          padding: 8px 9px !important;
+        }
+
+        #game .vital {
+          grid-template-columns: 43px 1fr 20px !important;
+          gap: 5px !important;
+        }
+
+        #game .vital > span,
+        #game .vital b {
+          font-size: 5px !important;
+        }
+
+        #hcCleanStatus {
+          display: none !important;
         }
 
         #game .hotbar {
-          grid-template-columns: repeat(5, 42px) !important;
+          bottom: 105px !important;
+          grid-template-columns: repeat(5, 43px) !important;
+          padding: 4px !important;
         }
 
         #game .hot-slot {
-          width: 42px !important;
-          height: 42px !important;
+          width: 43px !important;
+          height: 43px !important;
+        }
+      }
+
+      @media (max-width: 390px) {
+        #game .vitals {
+          width: 156px !important;
         }
 
-        #gunHud {
-          bottom: 111px !important;
+        #game .minimap-wrap {
+          width: 96px !important;
+        }
+
+        #game .minimap-wrap canvas {
+          width: 84px !important;
+          height: 84px !important;
+        }
+
+        #game .hotbar {
+          grid-template-columns: repeat(5, 39px) !important;
+          gap: 2px !important;
+        }
+
+        #game .hot-slot {
+          width: 39px !important;
+          height: 39px !important;
         }
       }
     `;
@@ -716,228 +617,167 @@
     document.head.append(style);
   }
 
-  function createThreatHud() {
-    const root = document.getElementById("game");
+  function createStatusElement() {
+    const gameScreen = document.getElementById("game");
 
     if (
-      !root ||
-      document.getElementById("hcThreatHud")
+      !gameScreen ||
+      document.getElementById("hcCleanStatus")
     ) {
       return;
     }
 
-    const hud = document.createElement("aside");
+    const status = document.createElement("div");
+    status.id = "hcCleanStatus";
+    status.textContent = "AREA QUIET";
 
-    hud.id = "hcThreatHud";
-
-    hud.innerHTML = `
-      <div class="hc-threat-head">
-        <span>LOCAL THREAT</span>
-        <b id="hcThreatLabel">CLEAR</b>
-      </div>
-
-      <div class="hc-threat-track">
-        <i id="hcThreatFill"></i>
-      </div>
-
-      <div class="hc-threat-foot">
-        <b id="hcMoveLabel">STANDING</b>
-        <b id="hcWeaponLabel">BARE HANDS</b>
-      </div>
-    `;
-
-    root.append(hud);
+    gameScreen.append(status);
   }
 
-  function updateThreatHud(game) {
+  function nearbyZombieCount(game, range) {
     const player = game.player;
-    const root = document.getElementById("game");
 
-    if (!player || !root) return;
+    if (!player) {
+      return 0;
+    }
 
-    let near = 0;
-    let close = 0;
-    let closest = Infinity;
+    let count = 0;
 
     for (const zombie of game.zombies || []) {
-      if (!zombie || zombie.dead) continue;
+      if (!zombie || zombie.dead) {
+        continue;
+      }
 
       const distance = Math.hypot(
         zombie.x - player.x,
         zombie.y - player.y
       );
 
-      if (distance < 640) near++;
-      if (distance < 245) close++;
-
-      closest = Math.min(
-        closest,
-        distance
-      );
+      if (distance <= range) {
+        count += 1;
+      }
     }
 
-    const score = clamp(
-      close * 18 +
-      near * 4 +
-      (
-        closest < 110
-          ? 26
-          : closest < 220
-            ? 12
-            : 0
-      ),
-      0,
-      100
-    );
+    return count;
+  }
 
-    root.style.setProperty(
-      "--hc-threat",
-      `${score}%`
-    );
+  function updateStatus(game) {
+    const player = game.player;
+    const status = document.getElementById("hcCleanStatus");
 
-    root.classList.toggle(
-      "hc-danger",
-      score >= 58
-    );
-
-    let status = "CLEAR";
-
-    if (
-      close >= 6 ||
-      score >= 82
-    ) {
-      status = "SURROUNDED";
-    } else if (
-      close >= 3 ||
-      score >= 58
-    ) {
-      status = "HUNTED";
-    } else if (
-      near >= 4 ||
-      score >= 28
-    ) {
-      status = "WATCHED";
-    } else if (near > 0) {
-      status = "MOVEMENT";
+    if (!player || !status) {
+      return;
     }
 
-    const threat =
-      document.getElementById(
-        "hcThreatLabel"
-      );
+    const close = nearbyZombieCount(game, 220);
+    const nearby = nearbyZombieCount(game, 520);
 
-    const move =
-      document.getElementById(
-        "hcMoveLabel"
-      );
+    status.classList.remove("warning", "danger");
 
-    const weapon =
-      document.getElementById(
-        "hcWeaponLabel"
-      );
-
-    if (threat) {
-      threat.textContent =
-        `${status} · ${near}`;
+    if (player.gunReload) {
+      status.textContent = `RELOADING · ${nearby} NEARBY`;
+      status.classList.add("warning");
+      return;
     }
 
-    if (move) {
-      move.textContent =
-        player.crouching
-          ? "QUIET"
-          : player.sprintingNow
-            ? "LOUD"
-            : player.movingNow
-              ? "MOVING"
-              : "STANDING";
+    if (close >= 5) {
+      status.textContent = `SURROUNDED · ${close} CLOSE`;
+      status.classList.add("danger");
+      return;
     }
 
-    if (weapon) {
-      weapon.textContent =
-        player.equipped
-          ? player.equipped
-              .replaceAll("_", " ")
-              .toUpperCase()
-          : "BARE HANDS";
+    if (close >= 2) {
+      status.textContent = `DANGER · ${close} CLOSE`;
+      status.classList.add("danger");
+      return;
+    }
+
+    if (nearby >= 4) {
+      status.textContent = `MOVEMENT · ${nearby} NEARBY`;
+      status.classList.add("warning");
+      return;
+    }
+
+    const movement = player.crouching
+      ? "QUIET"
+      : player.sprintingNow
+        ? "LOUD"
+        : player.movingNow
+          ? "MOVING"
+          : "AREA QUIET";
+
+    status.textContent =
+      nearby > 0
+        ? `${movement} · ${nearby} NEARBY`
+        : movement;
+
+    if (player.sprintingNow) {
+      status.classList.add("warning");
     }
   }
 
-  function bonusSpawn(
-    game,
-    chunk,
-    source,
-    index
-  ) {
+  function isBonusZombie(spawn) {
+    const id = String(spawn?.id || "");
+
+    return Boolean(
+      spawn?.__hcBonus30 ||
+      spawn?.__hcCleanBonus ||
+      id.includes("bonus30") ||
+      id.includes("-hc30-")
+    );
+  }
+
+  function makeBonusSpawn(game, chunk, source, index) {
     const seed =
       `${game.world?.seed || "HOLLOW"}:` +
-      `${chunk.key}:bonus30:${index}`;
+      `${chunk.key}:clean30:${index}`;
 
     const angle =
-      hash(`${seed}:angle`) *
+      hash01(`${seed}:angle`) *
       Math.PI *
       2;
 
-    const offset =
-      5 +
-      hash(`${seed}:offset`) *
-      8;
+    const distance =
+      12 +
+      hash01(`${seed}:distance`) *
+      18;
 
     const healthScale =
-      .94 +
-      hash(`${seed}:health`) *
-      .12;
+      0.95 +
+      hash01(`${seed}:health`) *
+      0.1;
 
     const speedScale =
-      .95 +
-      hash(`${seed}:speed`) *
-      .10;
+      0.96 +
+      hash01(`${seed}:speed`) *
+      0.08;
+
+    const health = Math.max(
+      1,
+      Math.round(
+        (source.health || source.maxHealth || 60) *
+        healthScale
+      )
+    );
 
     return {
       ...source,
 
-      id:
-        `${chunk.key}-bonus30-${index}`,
-
-      chunkKey:
-        chunk.key,
+      id: `${chunk.key}-hc30-${index}`,
+      chunkKey: chunk.key,
 
       x:
         source.x +
         Math.cos(angle) *
-        offset,
+        distance,
 
       y:
         source.y +
         Math.sin(angle) *
-        offset,
+        distance,
 
-      packId:
-        `${
-          source.packId ||
-          `${chunk.key}-pack`
-        }-reinforced`,
-
-      health:
-        Math.max(
-          1,
-          Math.round(
-            (source.health || 60) *
-            healthScale
-          )
-        ),
-
-      maxHealth:
-        Math.max(
-          1,
-          Math.round(
-            (
-              source.maxHealth ||
-              source.health ||
-              60
-            ) *
-            healthScale
-          )
-        ),
+      health,
+      maxHealth: health,
 
       speed:
         Math.max(
@@ -946,229 +786,218 @@
           speedScale
         ),
 
-      __hcBonus30: true
+      packId:
+        `${source.packId || chunk.key}-extra`,
+
+      __hcCleanBonus: true
     };
   }
 
-  function applyZombieBoost(game) {
+  function applyZombieIncrease(game) {
     const world = game.world;
 
     if (
       !world?.chunks ||
       !Array.isArray(game.zombies) ||
-      typeof game.makeZombie !==
-        "function"
+      typeof game.makeZombie !== "function"
     ) {
       return;
     }
 
-    const liveIds =
-      new Set(
-        game.zombies.map(
-          zombie => zombie.id
-        )
-      );
+    const worldSpawnIds = new Set(
+      (world.zombieSpawns || []).map(
+        spawn => spawn.id
+      )
+    );
 
-    const worldIds =
-      new Set(
-        (world.zombieSpawns || [])
-          .map(spawn => spawn.id)
-      );
+    const liveZombieIds = new Set(
+      (game.zombies || []).map(
+        zombie => zombie.id
+      )
+    );
 
-    for (
-      const chunk of
-      world.chunks.values()
-    ) {
-      if (
-        !chunk ||
-        chunk.__hcBoost30Applied
-      ) {
+    for (const chunk of world.chunks.values()) {
+      if (!chunk) {
         continue;
       }
 
-      const base =
-        (chunk.zombieSpawns || [])
-          .filter(
-            spawn =>
-              !spawn.__hcBonus30
-          );
+      const chunkSpawns =
+        chunk.zombieSpawns || [];
 
-      const extraCount =
-        Math.round(
-          base.length *
-          (MULTIPLIER - 1)
+      const normalSpawns =
+        chunkSpawns.filter(
+          spawn => !isBonusZombie(spawn)
         );
 
-      chunk.__hcBoost30Applied =
-        true;
+      const existingBonuses =
+        chunkSpawns.filter(
+          spawn => isBonusZombie(spawn)
+        );
+
+      const targetBonusCount =
+        Math.round(
+          normalSpawns.length *
+          ZOMBIE_INCREASE
+        );
+
+      const missing =
+        Math.max(
+          0,
+          targetBonusCount -
+          existingBonuses.length
+        );
 
       if (
-        !base.length ||
-        extraCount <= 0
+        normalSpawns.length === 0 ||
+        missing === 0
       ) {
         continue;
       }
 
       for (
-        let index = 0;
-        index < extraCount;
-        index++
+        let extra = 0;
+        extra < missing;
+        extra += 1
       ) {
-        const pick =
+        const index =
+          existingBonuses.length +
+          extra;
+
+        const sourceIndex =
           Math.floor(
-            hash(
+            hash01(
               `${world.seed}:` +
-              `${chunk.key}:` +
-              `pick:${index}`
+              `${chunk.key}:source:${index}`
             ) *
-            base.length
+            normalSpawns.length
           ) %
-          base.length;
+          normalSpawns.length;
+
+        const source =
+          normalSpawns[sourceIndex];
 
         const spawn =
-          bonusSpawn(
+          makeBonusSpawn(
             game,
             chunk,
-            base[pick],
+            source,
             index
           );
 
-        if (!worldIds.has(spawn.id)) {
-          world.zombieSpawns.push(
-            spawn
-          );
-
-          worldIds.add(spawn.id);
+        if (!worldSpawnIds.has(spawn.id)) {
+          world.zombieSpawns.push(spawn);
+          worldSpawnIds.add(spawn.id);
         }
 
         if (
-          !chunk.zombieSpawns.some(
-            entry =>
-              entry.id === spawn.id
+          !chunkSpawns.some(
+            entry => entry.id === spawn.id
           )
         ) {
-          chunk.zombieSpawns.push(
-            spawn
-          );
+          chunkSpawns.push(spawn);
         }
 
-        if (!liveIds.has(spawn.id)) {
+        if (!liveZombieIds.has(spawn.id)) {
           game.zombies.push(
             game.makeZombie(spawn)
           );
 
-          liveIds.add(spawn.id);
+          liveZombieIds.add(spawn.id);
         }
       }
     }
   }
 
-  function wrap(
-    game,
-    name,
-    after
-  ) {
-    if (
-      typeof game[name] !==
-      "function"
-    ) {
+  function wrapAfter(game, methodName, callback) {
+    if (typeof game[methodName] !== "function") {
       return;
     }
 
     const original =
-      game[name].bind(game);
+      game[methodName].bind(game);
 
-    game[name] =
-      function (...args) {
-        const result =
-          original(...args);
+    game[methodName] = function (...args) {
+      const result = original(...args);
 
-        after(this);
+      callback(this);
 
-        return result;
-      };
+      return result;
+    };
   }
 
   function install(game) {
     if (
       !game ||
-      game[FLAG]
+      game[INSTALL_FLAG]
     ) {
       return;
     }
 
-    game[FLAG] = true;
+    game[INSTALL_FLAG] = true;
 
     addStyles();
-    createThreatHud();
+    createStatusElement();
 
-    wrap(
+    wrapAfter(
       game,
       "updateWorldStreaming",
-      current =>
-        applyZombieBoost(current)
+      currentGame => {
+        applyZombieIncrease(currentGame);
+      }
     );
 
-    wrap(
+    wrapAfter(
       game,
       "startNew",
-      current => {
-        createThreatHud();
-        applyZombieBoost(current);
-        updateThreatHud(current);
+      currentGame => {
+        createStatusElement();
+        applyZombieIncrease(currentGame);
+        updateStatus(currentGame);
 
-        current.toast?.(
-          "HUD upgraded. Zombie population increased by 30%."
+        currentGame.toast?.(
+          "Clean survival HUD loaded. Zombie population increased by 30%."
         );
       }
     );
 
-    wrap(
+    wrapAfter(
       game,
       "loadSaved",
-      current => {
-        createThreatHud();
-        applyZombieBoost(current);
-        updateThreatHud(current);
+      currentGame => {
+        createStatusElement();
+        applyZombieIncrease(currentGame);
+        updateStatus(currentGame);
       }
     );
 
-    if (
-      typeof game.update ===
-      "function"
-    ) {
+    if (typeof game.update === "function") {
       const originalUpdate =
         game.update.bind(game);
 
-      let timer = 0;
+      let statusTimer = 0;
 
-      game.update =
-        function (dt) {
-          const result =
-            originalUpdate(dt);
+      game.update = function (dt) {
+        const result =
+          originalUpdate(dt);
 
-          timer -= dt;
+        statusTimer -= dt;
 
-          if (timer <= 0) {
-            timer = .12;
-            updateThreatHud(this);
-          }
+        if (statusTimer <= 0) {
+          statusTimer = 0.15;
+          updateStatus(this);
+        }
 
-          return result;
-        };
+        return result;
+      };
     }
 
     if (game.world) {
-      applyZombieBoost(game);
+      applyZombieIncrease(game);
     }
 
     if (game.player) {
-      updateThreatHud(game);
+      updateStatus(game);
     }
-
-    game.toast?.(
-      "Survival HUD and 30% zombie upgrade installed."
-    );
   }
 
   if (window.__walkers) {
@@ -1176,11 +1005,8 @@
   } else {
     window.addEventListener(
       "load",
-      () =>
-        install(window.__walkers),
-      {
-        once: true
-      }
+      () => install(window.__walkers),
+      { once: true }
     );
   }
 })();
