@@ -101,7 +101,8 @@
       <button id="mpJoin" type="button" disabled>JOIN ROOM</button>
       <p id="mpMessage">Connecting to multiplayer…</p>
     `;
-    card.appendChild(lobby);
+    const seedField = card.querySelector(".seed-field");
+card.insertBefore(lobby, seedField);
 
     document.getElementById("mpName").value = localStorage.walkersOnlineName || "";
     document.getElementById("mpRoom").addEventListener("input", (event) => {
