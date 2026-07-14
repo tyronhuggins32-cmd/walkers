@@ -2287,42 +2287,7 @@ function drawInteriorProp(ctx, prop) {
     for (const cell of windowPool.slice(0, Math.min(desiredWindows, windowPool.length))) {
       building.windows.push({ x: cell.x, y: cell.y, barred: type === "prison" });
     }
-    const doorKeys = new Set(building.doors.map((door) => `${door.x},${door.y}`));
-    const edgeFloors = building.cells.filter((cell) => {
-      if (getTile(world, cell.x, cell.y) !== TILE.FLOOR || doorKeys.has(`${cell.x},${cell.y}`)) return false;
-      if (building.stairTile && cell.x === building.stairTile.x && cell.y === building.stairTile.y) return false;
-      return [[1, 0], [-1, 0], [0, 1], [0, -1]].some(([dx, dy]) => getTile(world, cell.x + dx, cell.y + dy) === TILE.WALL);
-    });
-    const allFloors = building.cells.filter((cell) => {
-      if (getTile(world, cell.x, cell.y) !== TILE.FLOOR || doorKeys.has(`${cell.x},${cell.y}`)) return false;
-      return !building.stairTile || cell.x !== building.stairTile.x || cell.y !== building.stairTile.y;
-    });
-    const furniturePool = rng.shuffle(edgeFloors.length >= 3 ? edgeFloors : allFloors);
-    const areaTier = Math.max(0, Math.min(4, Math.floor(building.cells.length / 220)));
-    const countRange = type === "hospital" ? [9 + areaTier, 13 + areaTier * 2] : type === "grocery" ? [8 + areaTier, 12 + areaTier * 2] : type === "prison" ? [9 + areaTier, 14 + areaTier * 2] : type === "sheriff" ? [7 + areaTier, 11 + areaTier * 2] : type === "warehouse" ? [6 + areaTier, 10 + areaTier * 2] : floorCount === 2 ? [5 + areaTier, 8 + areaTier * 2] : [4 + areaTier, 7 + areaTier * 2];
-    const containerCount = Math.min(furniturePool.length, rng.int(countRange[0], countRange[1]));
-    const kinds = furnishKinds(type, interiorVariant);
-    const placed = [];
-    for (let i = 0; i < containerCount; i += 1) {
-      const cellIndex = furniturePool.findIndex((cell2) => placed.every((other) => Math.hypot(cell2.x - other.x, cell2.y - other.y) >= 1.8));
-      if (cellIndex < 0) break;
-      const cell = furniturePool.splice(cellIndex, 1)[0];
-      placed.push(cell);
-      const wallSide = [[0, -1, "north"], [1, 0, "east"], [0, 1, "south"], [-1, 0, "west"]].find(([dx, dy]) => getTile(world, cell.x + dx, cell.y + dy) === TILE.WALL);
-      const side = wallSide?.[2] || rng.pick(["north", "east", "south", "west"]);
-      world.containers.push({
-        id: `${id}-c${i}`,
-        buildingId: id,
-        chunkKey: world.activeChunkKey || null,
-        x: (cell.x + 0.5) * world.tileSize,
-        y: (cell.y + 0.5) * world.tileSize,
-        kind: kinds[i % kinds.length],
-        side,
-        searched: false,
-        loot: createLoot(rng, BUILDING_TYPES[type].loot, 1, ["hospital", "sheriff", "prison"].includes(type) ? 5 : 4)
-      });
-  }
-decorateBuildingInterior(world, building);
+    furnishBuildingInterior(world, building, rng);
 delete building.cellSet;
 world.buildings.push(building);
     return building;
