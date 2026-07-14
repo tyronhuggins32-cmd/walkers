@@ -1,8 +1,7 @@
 (() => {
   // Replace both values with your Supabase information.
-  const SUPABASE_URL = "PASTE_YOUR_PROJECT_URL_HERE";
-  const SUPABASE_KEY = "PASTE_YOUR_PUBLISHABLE_KEY_HERE";
-
+  const SUPABASE_URL = "https://hapnntzinjmqdoytvphn.supabase.co";
+const SUPABASE_KEY = "sb_publishable_ByuHAeY_f6wPd_kDOMAcAA_OPEbWVoM";
   function showStatus(message, color) {
     let status = document.getElementById("multiplayer-status");
 
@@ -70,5 +69,3 @@
     });
   });
 })();
-https://hapnntzinjmqdoytvphn.supabase.co
-sb_publishable_ByuHAeY_f6wPd_kDOMAcAA_OPEbWVoM
