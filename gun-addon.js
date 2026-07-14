@@ -2105,7 +2105,6 @@
     installPlayerFire(game);
     installNpcReload(game);
     installHudHooks(game);
-    installGunModels(game);
     installUpdate(game);
     installStartHooks(game);
 
