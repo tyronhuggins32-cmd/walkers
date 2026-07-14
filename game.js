@@ -5148,7 +5148,7 @@ flashlight: false
       return { building, upper: building.upperFloor };
     }
 
-    nearestStair(maxRange = 62) {
+    nearestStair(maxRange = 96) {
       if (!this.player) return null;
 
       if (this.player.floorLevel === 1) {
@@ -5174,8 +5174,14 @@ flashlight: false
       let closest = null;
       let best = maxRange;
 
-      for (const building of this.world.buildings) {
-        if (!building.upperFloor || !building.stairTile) continue;
+    for (const building of this.world.buildings) {
+  if (!building.stairTile) continue;
+
+  if (!building.upperFloor) {
+    buildSecondFloorLayer(this.world, building);
+  }
+
+  if (!building.upperFloor) continue;
 
         const x = (building.stairTile.x + 0.5) * TILE_SIZE;
         const y = (building.stairTile.y + 0.5) * TILE_SIZE;
@@ -5198,7 +5204,16 @@ flashlight: false
     }
 
     useStairs(building) {
-      if (!building?.upperFloor || !building.stairTile) return;
+  if (!building?.stairTile) return;
+
+  if (!building.upperFloor) {
+    buildSecondFloorLayer(this.world, building);
+  }
+
+  if (!building.upperFloor) {
+    this.toast("This staircase has no usable upper floor.", "danger");
+    return;
+  }
 
       const goingUp = this.player.floorLevel !== 1;
       const stair = building.upperFloor.stairTile;
@@ -5565,8 +5580,6 @@ flashlight: false
   this.renderLoot();
   this.openPanel("lootPanel");
 }
-      this.renderLoot();
-      this.openPanel("lootPanel");
     }
     renderLoot() {
       const list = $("#lootList");
@@ -6385,14 +6398,7 @@ if (upstairs) {
   this.drawPlayer(ctx, shakeX, shakeY);
   this.drawEffects(ctx, shakeX, shakeY, false);
 }
-this.drawInteriorDecor(ctx, shakeX, shakeY);
-this.drawContainers(ctx, shakeX, shakeY);
-      this.drawStructures(ctx, shakeX, shakeY);
-      this.drawEffects(ctx, shakeX, shakeY, true);
-      this.drawZombies(ctx, shakeX, shakeY);
-      this.drawSurvivors(ctx, shakeX, shakeY);
-      this.drawPlayer(ctx, shakeX, shakeY);
-      this.drawEffects(ctx, shakeX, shakeY, false);
+
       ctx.restore();
       this.drawLighting(ctx);
       this.drawVignette(ctx);
