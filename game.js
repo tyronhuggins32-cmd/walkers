@@ -1913,6 +1913,16 @@
         velocityY: 0,
         actualSpeed: 0,
         turnLean: 0,
+        exhausted: false,
+        exhaustionTime: 0,
+        actionKind: null,
+        actionItem: null,
+        actionAnim: 0,
+        actionDuration: 0,
+        knockbackX: 0,
+        knockbackY: 0,
+        knockbackTime: 0,
+        knockbackDuration: 0.32,
         health: 100,
         stamina: 100,
         hunger: 92,
@@ -2139,6 +2149,14 @@
       player.renderFacingY ?? (player.renderFacingY = player.facingY ?? 0);
       player.turnLean ?? (player.turnLean = 0);
       player.radius = 8;
+      player.exhausted ?? (player.exhausted = false);
+      player.exhaustionTime ?? (player.exhaustionTime = 0);
+      player.actionAnim ?? (player.actionAnim = 0);
+      player.actionDuration ?? (player.actionDuration = 0);
+      player.knockbackX ?? (player.knockbackX = 0);
+      player.knockbackY ?? (player.knockbackY = 0);
+      player.knockbackTime ?? (player.knockbackTime = 0);
+      player.knockbackDuration ?? (player.knockbackDuration = 0.32);
       player.attackAnim ?? (player.attackAnim = 0);
       player.attackDuration ?? (player.attackDuration = 0.28);
       player.attackMode ?? (player.attackMode = "melee");
@@ -2148,27 +2166,45 @@
       player.noiseCooldown = Math.max(0, player.noiseCooldown - dt);
       player.attackAnim = Math.max(0, player.attackAnim - dt);
       player.hurtAnim = Math.max(0, player.hurtAnim - dt);
+      player.actionAnim = Math.max(0, player.actionAnim - dt);
+      player.knockbackTime = Math.max(0, player.knockbackTime - dt);
+      if (player.actionAnim <= 0) {
+        player.actionKind = null;
+        player.actionItem = null;
+      }
+      if (!player.exhausted && player.stamina <= 10) {
+        player.exhausted = true;
+        player.exhaustionTime = 0;
+        this.toast("Exhausted\u2014slow down and catch your breath.", "danger");
+      } else if (player.exhausted && player.stamina >= 24) {
+        player.exhausted = false;
+      }
+      if (player.exhausted) player.exhaustionTime += dt;
+      else player.exhaustionTime = Math.max(0, player.exhaustionTime - dt * 4);
       const move = this.input.movement();
       const inputLength = Math.hypot(move.x, move.y);
       const inputStrength = clamp(inputLength, 0, 1);
       const hasInput = inputStrength > 0.045;
       const inputX = hasInput ? move.x / inputLength : 0;
       const inputY = hasInput ? move.y / inputLength : 0;
-      const canSprint = this.input.sprinting && !player.crouching && player.stamina > 3 && hasInput;
-      let speed = player.crouching ? 65 : 112;
+      const knockedBack = player.knockbackTime > 0;
+      const canSprint = this.input.sprinting && !player.crouching && !player.exhausted && !knockedBack && player.stamina > 1 && hasInput;
+      let speed = player.exhausted ? player.crouching ? 48 : 67 : player.crouching ? 65 : 112;
       if (canSprint) {
         speed = 176;
-        player.stamina = Math.max(0, player.stamina - dt * 19);
+        player.stamina = Math.max(0, player.stamina - dt * 10);
         if (player.noiseCooldown <= 0) {
           player.noiseCooldown = 0.32;
           this.emitNoise(player.x, player.y, 195, "footsteps");
         }
       } else {
         const recovery = player.hunger < 15 || player.thirst < 15 ? 6 : 14;
-        player.stamina = Math.min(100, player.stamina + dt * recovery);
+        const exhaustedRecovery = hasInput ? 10 : 18;
+        player.stamina = Math.min(100, player.stamina + dt * (player.exhausted ? exhaustedRecovery : recovery));
       }
-      const desiredVelocityX = inputX * speed * inputStrength;
-      const desiredVelocityY = inputY * speed * inputStrength;
+      const control = knockedBack ? 0.16 : player.actionAnim > 0 ? 0.58 : 1;
+      const desiredVelocityX = inputX * speed * inputStrength * control;
+      const desiredVelocityY = inputY * speed * inputStrength * control;
       const response = hasInput ? canSprint ? 10.5 : player.crouching ? 12 : 14 : 18;
       const velocityBlend = 1 - Math.exp(-response * dt);
       player.velocityX += (desiredVelocityX - player.velocityX) * velocityBlend;
@@ -2187,6 +2223,16 @@
         const actualY2 = player.y - beforeY;
         if (Math.abs(requestedX) > 0.01 && Math.abs(actualX2) < Math.abs(requestedX) * 0.2) player.velocityX *= 0.18;
         if (Math.abs(requestedY) > 0.01 && Math.abs(actualY2) < Math.abs(requestedY) * 0.2) player.velocityY *= 0.18;
+      }
+      if (knockedBack) {
+        const force = clamp(player.knockbackTime / Math.max(0.01, player.knockbackDuration), 0, 1);
+        this.moveCircle(player, player.knockbackX * force * dt, player.knockbackY * force * dt, true);
+        const drag = Math.exp(-5.5 * dt);
+        player.knockbackX *= drag;
+        player.knockbackY *= drag;
+      } else {
+        player.knockbackX *= Math.exp(-12 * dt);
+        player.knockbackY *= Math.exp(-12 * dt);
       }
       const actualX = player.x - beforeX;
       const actualY = player.y - beforeY;
@@ -2219,9 +2265,9 @@
       player.renderFacingY = Math.sin(renderedAngle);
       const leanTarget = clamp(angleDifference * 0.42, -0.34, 0.34) * player.moveBlend;
       player.turnLean += (leanTarget - player.turnLean) * (1 - Math.exp(-12 * dt));
-      const motionTarget = clamp(player.actualSpeed / (player.crouching ? 52 : canSprint ? 142 : 92), 0, 1);
+      const motionTarget = knockedBack ? 0.2 : clamp(player.actualSpeed / (player.crouching ? 52 : canSprint ? 142 : player.exhausted ? 58 : 92), 0, 1);
       player.moveBlend += (motionTarget - player.moveBlend) * (1 - Math.exp(-(hasInput ? 13 : 9) * dt));
-      const gaitRate = player.crouching ? 5.2 : player.sprintingNow ? 11.2 : 8.1;
+      const gaitRate = player.exhausted ? 4.3 : player.crouching ? 5.2 : player.sprintingNow ? 11.2 : 8.1;
       player.animTime += dt * (1.15 + gaitRate * player.moveBlend);
       const equipped = ITEMS[player.equipped];
       if (this.attackHeld && equipped?.automatic && player.attackCooldown <= 0) this.attack();
@@ -2591,6 +2637,16 @@
         target.hurtAnim = 0.3;
         const damage = profile.damage[0] + Math.random() * (profile.damage[1] - profile.damage[0]);
         target.health = Math.max(0, target.health - damage);
+        const knockX = target.x - zombie.x;
+        const knockY = target.y - zombie.y;
+        const knockLength = Math.hypot(knockX, knockY) || 1;
+        const knockForce = zombie.archetype === "brute" ? 245 : zombie.archetype === "runner" ? 155 : 118;
+        target.knockbackX = knockX / knockLength * knockForce;
+        target.knockbackY = knockY / knockLength * knockForce;
+        target.knockbackDuration = zombie.archetype === "brute" ? 0.44 : 0.3;
+        target.knockbackTime = target.knockbackDuration;
+        target.actionAnim = 0;
+        target.actionKind = null;
         this.camera.shake = Math.max(this.camera.shake, zombie.archetype === "brute" ? 12 : 7);
         this.addBlood(target.x, target.y, 4);
         if (Math.random() < profile.infection) {
@@ -2743,10 +2799,12 @@
       if (player.attackCooldown > 0 || player.stamina <= 1) return;
       const weapon = ITEMS[player.equipped] ?? FISTS;
       const aim = this.aimVector();
+      player.actionAnim = 0;
+      player.actionKind = null;
       player.facingX = aim.x;
       player.facingY = aim.y;
-      player.attackCooldown = weapon.cooldown;
-      player.stamina = Math.max(0, player.stamina - (weapon.staminaCost || 2));
+      player.attackCooldown = weapon.cooldown * (player.exhausted ? 1.45 : 1);
+      player.stamina = Math.max(0, player.stamina - (weapon.staminaCost || 2) * 0.72);
       if (weapon.mode === "ranged") {
         if (!this.removeItem(weapon.ammo, 1)) {
           player.attackCooldown = 0.18;
@@ -3166,17 +3224,29 @@
       } else if (item.kind === "food") {
         this.player.hunger = clamp(this.player.hunger + (item.hunger || 0), 0, 100);
         this.player.thirst = clamp(this.player.thirst + (item.thirst || 0), 0, 100);
+        this.player.actionKind = "eat";
+        this.player.actionItem = entry.id;
+        this.player.actionDuration = 1.15;
+        this.player.actionAnim = this.player.actionDuration;
         this.removeItem(entry.id, 1);
         this.toast(`Ate ${item.name.toLowerCase()}.`);
       } else if (item.kind === "drink") {
         this.player.thirst = clamp(this.player.thirst + (item.thirst || 0), 0, 100);
         this.player.stamina = clamp(this.player.stamina + (item.stamina || 0), 0, 100);
+        this.player.actionKind = "drink";
+        this.player.actionItem = entry.id;
+        this.player.actionDuration = 1.05;
+        this.player.actionAnim = this.player.actionDuration;
         this.removeItem(entry.id, 1);
         this.toast(`Drank ${item.name.toLowerCase()}.`);
       } else if (item.kind === "medical") {
         this.player.health = clamp(this.player.health + (item.health || 0), 0, 100);
         this.player.stamina = clamp(this.player.stamina + (item.stamina || 0), 0, 100);
         this.player.infection = clamp(this.player.infection + (item.infection || 0), 0, 100);
+        this.player.actionKind = "medical";
+        this.player.actionItem = entry.id;
+        this.player.actionDuration = 1.3;
+        this.player.actionAnim = this.player.actionDuration;
         this.removeItem(entry.id, 1);
         this.toast(`Used ${item.name.toLowerCase()}.`);
       } else if (item.kind === "gear" && item.light) {
@@ -5258,10 +5328,10 @@
       brute: { name: "BRUTE", hp: 185, speed: 31, radius: 18, color: "#607562" }
     });
     const LOOKS = [
-      { skin: "#899276", skin2: "#606a54", shirt: "#465648", dark: "#2d3931", pants: "#2b3333", wound: "#7d3433", hair: "#24211d" },
-      { skin: "#969177", skin2: "#686451", shirt: "#545b67", dark: "#343c46", pants: "#292e38", wound: "#813e38", hair: "#211f1d" },
-      { skin: "#7d8e7c", skin2: "#556759", shirt: "#706c61", dark: "#494940", pants: "#363a36", wound: "#71312e", hair: "#2e2720" },
-      { skin: "#9a8d72", skin2: "#6e604b", shirt: "#62504c", dark: "#413431", pants: "#303037", wound: "#823c35", hair: "#1f1c1a" }
+      { skin: "#67984b", skin2: "#315d36", rot: "#496f37", shirt: "#934d24", dark: "#5b301d", pants: "#263f4e", wound: "#7f2928", hair: "#183522" },
+      { skin: "#79a956", skin2: "#3d6839", rot: "#557d3d", shirt: "#75502e", dark: "#49321f", pants: "#293846", wound: "#8b302c", hair: "#223822" },
+      { skin: "#598943", skin2: "#2d5634", rot: "#3e6938", shirt: "#5f6670", dark: "#353b43", pants: "#243b4d", wound: "#762824", hair: "#182d20" },
+      { skin: "#87a957", skin2: "#466b36", rot: "#617d40", shirt: "#7f3e2b", dark: "#4c2921", pants: "#2e3848", wound: "#8d342d", hair: "#27331f" }
     ];
     function hash(value) {
       const text = String(value ?? "walker");
@@ -5314,9 +5384,9 @@
       ctx.closePath();
     }
     function limb(ctx, x1, y1, x2, y2, width, color, endColor = color) {
-      ctx.lineCap = "round";
+      ctx.lineCap = "butt";
       ctx.strokeStyle = "#20251f";
-      ctx.lineWidth = width + 2.5;
+      ctx.lineWidth = width + 3;
       ctx.beginPath();
       ctx.moveTo(x1, y1);
       ctx.lineTo(x2, y2);
@@ -5328,9 +5398,8 @@
       ctx.lineTo(x2, y2);
       ctx.stroke();
       ctx.fillStyle = endColor;
-      ctx.beginPath();
-      ctx.arc(x2, y2, width * 0.57, 0, Math.PI * 2);
-      ctx.fill();
+      const end = Math.max(3, Math.round(width * 0.9));
+      ctx.fillRect(Math.round(x2 - end / 2), Math.round(y2 - end / 2), end, end);
     }
     function shadow(ctx, width, height = 6) {
       ctx.fillStyle = "rgba(2,5,3,.44)";
@@ -5339,23 +5408,41 @@
       ctx.fill();
     }
     function face(ctx, x, y, side, look, scale = 1, mouth = 2) {
-      ctx.fillStyle = "#263027";
-      ctx.beginPath();
-      ctx.ellipse(x, y, 7.4 * scale, 8.3 * scale, 0, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.save();
+      ctx.translate(Math.round(x), Math.round(y));
+      ctx.scale(scale, scale);
+      ctx.imageSmoothingEnabled = false;
+      ctx.fillStyle = "#17251d";
+      ctx.fillRect(-8, -8, 16, 17);
+      ctx.fillStyle = look.skin2;
+      ctx.fillRect(-9, -3, 3, 7);
+      ctx.fillRect(6, -2, 3, 6);
       ctx.fillStyle = look.skin;
-      ctx.beginPath();
-      ctx.ellipse(x, y, 6.2 * scale, 7.1 * scale, 0, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.fillRect(-6, -7, 12, 13);
+      ctx.fillStyle = look.rot || look.skin2;
+      ctx.fillRect(-6, -7, 5, 3);
+      ctx.fillRect(3, -5, 3, 4);
+      ctx.fillRect(-5, 3, 3, 3);
       ctx.fillStyle = look.hair;
-      ctx.beginPath();
-      ctx.ellipse(x - side, y - 4.6 * scale, 6.1 * scale, 3.2 * scale, 0, Math.PI, Math.PI * 2);
-      ctx.fill();
-      ctx.fillRect(x - (side > 0 ? 6 : -3) * scale, y - 4 * scale, 3 * scale, 6 * scale);
-      ctx.fillStyle = "#20231e";
-      ctx.fillRect(x + side * 2 - 1, y - 1.5, 2, 2);
+      ctx.fillRect(-6, -8, 12, 3);
+      ctx.fillRect(-7, -6, 3, 6);
+      ctx.fillStyle = "#17201a";
+      ctx.fillRect(-5, -2, 4, 4);
+      ctx.fillRect(2, -2, 4, 4);
+      ctx.fillStyle = "#d54c43";
+      ctx.fillRect(-4, -1, 2, 2);
+      ctx.fillRect(3, -1, 2, 2);
+      ctx.fillStyle = "#29422a";
+      ctx.fillRect(-1 + side, 1, 2, 3);
+      const mouthHeight = Math.max(3, Math.round(mouth));
+      ctx.fillStyle = "#251b1b";
+      ctx.fillRect(-4, 4, 8, mouthHeight);
+      ctx.fillStyle = "#d7d0aa";
+      ctx.fillRect(-3, 4, 2, 2);
+      ctx.fillRect(1, 4, 2, 2);
       ctx.fillStyle = look.wound;
-      ctx.fillRect(x - 2 + side, y + 3, 5, mouth);
+      ctx.fillRect(side > 0 ? -7 : 5, 1, 2, 4);
+      ctx.restore();
     }
     function typeTag(ctx, zombie, y) {
       if (zombie.zombieType === "normal" || zombie.dead) return;
@@ -5380,14 +5467,16 @@
       limb(ctx, 4, -10, 5 - fx * stride, 0 - fy * stride * 0.4, 5, look.pants, "#171c1a");
       const attack = zombie.state === "chase" || zombie.state === "bash";
       const reach = attack ? 12 : 3;
-      limb(ctx, bodyX - 7, bodyY - 1, bodyX - 11 + fx * reach, bodyY + 7 + fy * reach * 0.5, 4.5, look.dark, look.skin2);
-      limb(ctx, bodyX + 7, bodyY - 1, bodyX + 10 + fx * (reach + 2), bodyY + 9 + fy * reach * 0.5, 4.5, look.dark, look.skin2);
+      limb(ctx, bodyX - 7, bodyY - 1, bodyX - 11 + fx * reach, bodyY + 7 + fy * reach * 0.5, 5, look.skin2, look.skin);
+      limb(ctx, bodyX + 7, bodyY - 1, bodyX + 10 + fx * (reach + 2), bodyY + 9 + fy * reach * 0.5, 5, look.skin2, look.skin);
       ctx.fillStyle = "#222922";
-      rounded(ctx, bodyX - 9, bodyY - 8, 18, 19, 5);
-      ctx.fill();
+      ctx.fillRect(Math.round(bodyX - 10), Math.round(bodyY - 9), 20, 21);
       ctx.fillStyle = look.shirt;
-      rounded(ctx, bodyX - 7.5, bodyY - 7, 15, 16, 4);
-      ctx.fill();
+      ctx.fillRect(Math.round(bodyX - 8), Math.round(bodyY - 7), 16, 16);
+      ctx.fillRect(Math.round(bodyX - 6), Math.round(bodyY + 8), 4, 4);
+      ctx.fillRect(Math.round(bodyX + 2), Math.round(bodyY + 7), 5, 5);
+      ctx.fillStyle = look.dark;
+      ctx.fillRect(Math.round(bodyX - 8), Math.round(bodyY - 7), 4, 4);
       ctx.fillStyle = look.wound;
       ctx.beginPath();
       ctx.ellipse(bodyX + 4, bodyY + 3, 3, 2, 0.4, 0, Math.PI * 2);
@@ -6649,6 +6738,34 @@
       ctx.arc(x, y, range, pose.swingAngle - 0.58, pose.swingAngle + 0.18);
       ctx.stroke();
     }
+    function drawActionProp(ctx, kind, itemId, x, y, progress) {
+      const wobble = Math.sin(progress * Math.PI * 4);
+      ctx.save();
+      ctx.translate(Math.round(x), Math.round(y));
+      ctx.rotate(wobble * 0.08);
+      if (kind === "drink") {
+        ctx.fillStyle = "#172023";
+        ctx.fillRect(-4, -7, 8, 14);
+        ctx.fillStyle = itemId === "soda" ? "#a9473f" : "#6d9bad";
+        ctx.fillRect(-3, -5, 6, 10);
+        ctx.fillStyle = "#d6ddd5";
+        ctx.fillRect(-2, -8, 4, 3);
+      } else if (kind === "medical") {
+        ctx.fillStyle = "#d9d9cb";
+        ctx.fillRect(-7, -4, 14, 8);
+        ctx.fillStyle = "#a9443f";
+        ctx.fillRect(-1, -3, 3, 6);
+        ctx.fillRect(-4, -1, 9, 3);
+      } else {
+        ctx.fillStyle = "#202624";
+        ctx.fillRect(-6, -5, 12, 10);
+        ctx.fillStyle = itemId === "canned_beans" ? "#718265" : itemId === "jerky" ? "#8b4c32" : "#b39a59";
+        ctx.fillRect(-4, -3, 8, 6);
+        ctx.fillStyle = "#d7d2b8";
+        ctx.fillRect(-2, -1, 5, 2);
+      }
+      ctx.restore();
+    }
     function drawPlayerModel(ctx, player, screen, appearance, requestedScale = 0.82) {
       const look = { ...DEFAULT_LOOK, ...appearance || {} };
       const skin = SKINS[look.skin] || SKINS.medium;
@@ -6664,15 +6781,23 @@
       const sprint = Boolean(player.sprintingNow);
       const bodyWidth = look.build === "slim" ? 0.9 : look.build === "sturdy" ? 1.09 : 1;
       const scale = requestedScale;
-      const stride = Math.sin(phase) * moving * (sprint ? 6 : crouch ? 2.5 : 4.2);
-      const bob = Math.abs(Math.cos(phase)) * moving * 1.1;
-      const compress = crouch ? 5 : 0;
+      const exhausted = Boolean(player.exhausted);
+      const exhaustionWave = Math.sin((player.exhaustionTime || 0) * 5.4);
+      const knockback = clamp2((player.knockbackTime || 0) / Math.max(0.01, player.knockbackDuration || 0.32), 0, 1);
+      const actionDuration = player.actionDuration || 1;
+      const actionRemaining = clamp2((player.actionAnim || 0) / actionDuration, 0, 1);
+      const actionProgress = actionRemaining > 0 ? 1 - actionRemaining : 0;
+      const actionActive = actionRemaining > 0 && Boolean(player.actionKind);
+      const stride = Math.sin(phase) * moving * (sprint ? 6 : crouch ? 2.5 : exhausted ? 2.4 : 4.2);
+      const bob = Math.abs(Math.cos(phase)) * moving * (exhausted ? 0.65 : 1.1);
+      const compress = crouch ? 5 : exhausted ? 2 : 0;
       const hurt = clamp2((player.hurtAnim || 0) / 0.3, 0, 1);
       const flash = hurt > 0 && Math.floor(hurt * 22) % 2 === 0;
       const weaponId = player.equipped || "fists";
       ctx.save();
       ctx.translate(Math.round(screen.x), Math.round(screen.y));
-      ctx.rotate((player.turnLean || 0) * 0.08);
+      ctx.rotate((player.turnLean || 0) * 0.08 - side * knockback * 0.22);
+      ctx.translate(-fx * knockback * 3, knockback * 2);
       ctx.scale(scale * bodyWidth, scale);
       ctx.imageSmoothingEnabled = false;
       ctx.fillStyle = "rgba(2,5,3,.44)";
@@ -6691,8 +6816,8 @@
       ctx.fillStyle = clothes.boot;
       ctx.fillRect(Math.round(leftFoot.x - 5 + side), Math.round(leftFoot.y - 2), 9, 5);
       ctx.fillRect(Math.round(rightFoot.x - 5 + side), Math.round(rightFoot.y - 2), 9, 5);
-      const bodyX = sprint ? fx * 2.5 : 0;
-      const bodyY = -22 + compress + bob;
+      const bodyX = sprint ? fx * 2.5 : exhausted ? -fx * 1.5 : 0;
+      const bodyY = -22 + compress + bob + (exhausted ? 2.5 + exhaustionWave * 0.55 : 0);
       const hasPack = player.inventory?.some((entry) => entry.id === "backpack" && entry.qty > 0);
       if (hasPack) {
         ctx.fillStyle = "#171b18";
@@ -6703,7 +6828,18 @@
         ctx.fillRect(bodyX - 2 - fx, bodyY + 7, 4, 3);
       }
       const pose = combatPose(player, weaponId, fx, fy, bodyX, bodyY, player.attackDuration || 0.3);
-      attackTrail(ctx, pose, bodyX, bodyY + 2, weaponId === "katana" ? 31 : 27);
+      if (actionActive && (player.attackAnim || 0) <= 0) {
+        const lift = Math.sin(actionProgress * Math.PI);
+        pose.left = { x: bodyX - side * 3, y: bodyY + 4 - lift * 5 };
+        pose.right = { x: bodyX + fx * (4 + lift * 3), y: bodyY - 5 - lift * 7 + fy * 2 };
+      } else if (knockback > 0) {
+        pose.left = { x: bodyX - 13 - fx * 4, y: bodyY - 5 - fy * 3 };
+        pose.right = { x: bodyX + 13 - fx * 4, y: bodyY - 4 - fy * 3 };
+      } else if (exhausted && (player.attackAnim || 0) <= 0) {
+        pose.left = { x: bodyX - 9 + exhaustionWave, y: bodyY + 13 };
+        pose.right = { x: bodyX + 9 - exhaustionWave, y: bodyY + 13 };
+      }
+      if (!actionActive && knockback <= 0) attackTrail(ctx, pose, bodyX, bodyY + 2, weaponId === "katana" ? 31 : 27);
       bar(ctx, bodyX - 8, bodyY - 1, pose.left.x, pose.left.y, 6, flash ? "#eee8df" : clothes.dark);
       ctx.fillStyle = "#101415";
       ctx.fillRect(bodyX - 11, bodyY - 10, 22, 22);
@@ -6720,7 +6856,10 @@
       ctx.fillStyle = flash ? "#fff2e7" : skin[0];
       ctx.fillRect(pose.left.x - 3, pose.left.y - 3, 6, 6);
       ctx.fillRect(pose.right.x - 3, pose.right.y - 3, 6, 6);
-      if (pose.item.mode === "ranged") {
+      if (actionActive) {
+        drawActionProp(ctx, player.actionKind, player.actionItem, pose.right.x, pose.right.y, actionProgress);
+      } else if (knockback > 0) {
+      } else if (pose.item.mode === "ranged") {
         drawGun(ctx, weaponId, (pose.left.x + pose.right.x) / 2, (pose.left.y + pose.right.y) / 2, fx, fy * 0.78, pose.remaining > 0.42);
       } else if (weaponId !== "fists") drawMelee(ctx, weaponId, pose.right.x, pose.right.y, pose.dx, pose.dy);
       const headX = bodyX + fx * 2;
@@ -6735,8 +6874,13 @@
       headgearShape(ctx, look.headgear, clothes.dark, accent, headX, headY, side);
       ctx.fillStyle = "#231f1c";
       ctx.fillRect(headX + side * 2 - 1, headY - 1, 2, 2);
-      ctx.fillStyle = "#80503e";
-      ctx.fillRect(headX - 1 + side, headY + 4, 4, 1);
+      ctx.fillStyle = exhausted ? "#382725" : "#80503e";
+      ctx.fillRect(headX - 1 + side, headY + 4, exhausted ? 5 : 4, exhausted ? 3 : 1);
+      if (exhausted) {
+        ctx.fillStyle = "#83b4be";
+        ctx.fillRect(headX - side * 7, headY - 1 + Math.round(exhaustionWave), 2, 4);
+        ctx.fillRect(headX + side * 7, headY + 2 - Math.round(exhaustionWave), 2, 3);
+      }
       ctx.restore();
     }
     const NPC_SKINS = ["light", "warm", "medium", "brown", "deep", "dark"];
@@ -6764,11 +6908,12 @@
       bandit: ["#4d3738", "#2c2021", "#343035"]
     });
     function npcLook(survivor) {
-      const seed = `${survivor.id}:${Math.floor(survivor.x || 0)}:${Math.floor(survivor.y || 0)}`;
+      if (survivor.__fixedNpcLook) return survivor.__fixedNpcLook;
+      const seed = `${survivor.id || survivor.name || "survivor"}:${survivor.chunkKey || "roamer"}:${survivor.visualSeed ?? 0}`;
       const attitude = survivor.attitude || (hash(`${seed}:a`) < 0.42 ? "passive" : hash(`${seed}:b`) < 0.72 ? "neutral" : "aggressive");
       const choose = (array, salt) => array[Math.floor(hash(`${seed}:${salt}`) * array.length) % array.length];
       const outfit = choose(NPC_OUTFITS[attitude] || NPC_OUTFITS.neutral, "outfit");
-      return {
+      survivor.__fixedNpcLook = {
         attitude,
         skin: choose(NPC_SKINS, "skin"),
         hair: choose(NPC_HAIR, "hair"),
@@ -6778,6 +6923,7 @@
         build: choose(["slim", "standard", "standard", "sturdy"], "build"),
         accent: attitude === "aggressive" ? "#b44440" : attitude === "passive" ? "#83baaa" : "#c5ad67"
       };
+      return survivor.__fixedNpcLook;
     }
     function drawNpcOutfit(ctx, look, x, y) {
       ctx.fillStyle = look.accent;
