@@ -1037,6 +1037,583 @@
 
   if (window.__walkers) install(window.__walkers);
   else window.addEventListener("load", () => install(window.__walkers), { once: true });
+})();/* WALKERS — PLAYER COLLISION + BUILDING ACCESS + SURVIVOR COMBAT FIX
+   Paste this entire file at the VERY BOTTOM of game.js, after all other add-ons.
+   It repairs loaded buildings/chunks at runtime and does not erase saved loot. */
+
+(() => {
+  "use strict";
+
+  const TILE = Object.freeze({ GRASS: 0, ROAD: 1, FLOOR: 2, WALL: 3, WATER: 4, TREE: 5 });
+  const DIR = Object.freeze({ north: [0, -1], south: [0, 1], west: [-1, 0], east: [1, 0] });
+  const OPPOSITE = Object.freeze({ north: "south", south: "north", west: "east", east: "west" });
+  const MAJOR = new Set(["hospital", "grocery", "sheriff", "prison", "warehouse"]);
+  const REPAIR_VERSION = 4;
+
+  const WEAPONS = Object.freeze({
+    fists: ["melee", 7, 40], knife: ["melee", 14, 46], hammer: ["melee", 20, 51], bat: ["melee", 22, 58],
+    axe: ["melee", 36, 62], machete: ["melee", 28, 66], katana: ["melee", 38, 74], crowbar: ["melee", 24, 63],
+    spear: ["melee", 30, 88], sledgehammer: ["melee", 44, 68], pistol: ["ranged", 42, 560],
+    revolver: ["ranged", 58, 650], machine_pistol: ["ranged", 18, 430], smg: ["ranged", 21, 460],
+    shotgun: ["ranged", 55, 390], double_barrel: ["ranged", 68, 360], rifle: ["ranged", 72, 830],
+    carbine: ["ranged", 46, 690], assault_rifle: ["ranged", 35, 760], lever_rifle: ["ranged", 66, 810]
+  });
+
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const keyOf = (x, y) => `${x},${y}`;
+
+  function inBounds(world, x, y) {
+    return x >= 0 && y >= 0 && x < world.width && y < world.height;
+  }
+
+  function getTile(world, x, y) {
+    if (!inBounds(world, x, y)) return TILE.WALL;
+    if (world.chunked) {
+      const size = world.chunkSize || 48;
+      const cx = Math.floor(x / size);
+      const cy = Math.floor(y / size);
+      const chunk = world.chunks?.get(`${cx},${cy}`);
+      if (!chunk) return TILE.GRASS;
+      const lx = x - cx * size;
+      const ly = y - cy * size;
+      return chunk.tiles[ly * size + lx];
+    }
+    return world.tiles[y * world.width + x];
+  }
+
+  function setTile(world, x, y, value) {
+    if (!inBounds(world, x, y)) return false;
+    if (world.chunked) {
+      const size = world.chunkSize || 48;
+      const cx = Math.floor(x / size);
+      const cy = Math.floor(y / size);
+      const chunk = world.chunks?.get(`${cx},${cy}`);
+      if (!chunk) return false;
+      const lx = x - cx * size;
+      const ly = y - cy * size;
+      chunk.tiles[ly * size + lx] = value;
+      return true;
+    }
+    world.tiles[y * world.width + x] = value;
+    return true;
+  }
+
+  function solid(tile) {
+    return tile === TILE.WALL || tile === TILE.WATER || tile === TILE.TREE;
+  }
+
+  function buildingSet(building) {
+    return new Set((building.cells || []).map((cell) => keyOf(cell.x, cell.y)));
+  }
+
+  function boundarySides(cell, cells, outerOnly = false, building = null) {
+    const sides = [];
+    for (const [side, [dx, dy]] of Object.entries(DIR)) {
+      if (outerOnly && building) {
+        const outer = side === "north" ? cell.y === building.y
+          : side === "south" ? cell.y === building.y + building.h - 1
+            : side === "west" ? cell.x === building.x
+              : cell.x === building.x + building.w - 1;
+        if (!outer) continue;
+      }
+      if (!cells.has(keyOf(cell.x + dx, cell.y + dy))) sides.push(side);
+    }
+    return sides;
+  }
+
+  function doorStyle(building, service = false) {
+    if (service) return building.type === "prison" ? "steel" : "wood";
+    if (building.type === "hospital") return "glass";
+    if (building.type === "grocery") return "automatic";
+    if (building.type === "prison") return "steel";
+    return "wood";
+  }
+
+  function persistedDoorState(world, building, id) {
+    const state = building.chunkKey ? world.chunkStates?.get(building.chunkKey) : null;
+    return state?.doors?.find((door) => door.id === id) || null;
+  }
+
+  function makeDoor(world, building, cell, side, exterior, style) {
+    const suffix = exterior ? "access" : "room";
+    let index = 0;
+    let id = `${building.id}-${suffix}-${index}`;
+    const used = new Set((building.doors || []).map((door) => door.id));
+    while (used.has(id)) { index += 1; id = `${building.id}-${suffix}-${index}`; }
+    const maxHp = style === "steel" || style === "barred" ? 190 : style === "glass" || style === "automatic" ? 75 : 110;
+    const door = {
+      id, buildingId: building.id, chunkKey: building.chunkKey || null,
+      x: cell.x, y: cell.y, side,
+      orientation: side === "north" || side === "south" ? "horizontal" : "vertical",
+      exterior, style, defaultOpen: !exterior, open: !exterior, broken: false, hp: maxHp, maxHp,
+      repairedAccess: true
+    };
+    Object.assign(door, persistedDoorState(world, building, id) || {});
+    building.doors ||= [];
+    building.doors.push(door);
+    building.windows = (building.windows || []).filter((window) => window.x !== cell.x || window.y !== cell.y);
+    building.barTiles = (building.barTiles || []).filter((bar) => bar.x !== cell.x || bar.y !== cell.y);
+    setTile(world, cell.x, cell.y, TILE.FLOOR);
+    return door;
+  }
+
+  function entranceScore(world, building, cell, side, existingDoors, service) {
+    const [dx, dy] = DIR[side];
+    let obstruction = 0;
+    let roadDistance = 14;
+    for (let step = 1; step <= 14; step += 1) {
+      const tile = getTile(world, cell.x + dx * step, cell.y + dy * step);
+      if (tile === TILE.ROAD) { roadDistance = step; break; }
+      if (solid(tile)) obstruction += tile === TILE.WALL ? 8 : 1;
+    }
+    const nearestDoor = existingDoors.length
+      ? Math.min(...existingDoors.map((door) => Math.hypot(door.x - cell.x, door.y - cell.y))) : 0;
+    return service ? obstruction * 5 + roadDistance - nearestDoor * 1.8 : obstruction * 6 + roadDistance;
+  }
+
+  function addBestExteriorDoor(world, building, cells, service = false) {
+    const existing = (building.doors || []).filter((door) => door.exterior);
+    let candidates = [];
+    for (const cell of building.cells || []) {
+      if (getTile(world, cell.x, cell.y) !== TILE.WALL) continue;
+      for (const side of boundarySides(cell, cells, true, building)) candidates.push({ cell, side });
+    }
+    if (!candidates.length) {
+      for (const cell of building.cells || []) {
+        if (getTile(world, cell.x, cell.y) !== TILE.WALL) continue;
+        for (const side of boundarySides(cell, cells)) candidates.push({ cell, side });
+      }
+    }
+    candidates = candidates.filter(({ cell }) => existing.every((door) => Math.hypot(door.x - cell.x, door.y - cell.y) > (service ? 5 : 2)));
+    if (!candidates.length) return null;
+    candidates.sort((a, b) => entranceScore(world, building, a.cell, a.side, existing, service) - entranceScore(world, building, b.cell, b.side, existing, service));
+    const picked = candidates[0];
+    return makeDoor(world, building, picked.cell, picked.side, true, doorStyle(building, service));
+  }
+
+  function ownerIndex(world) {
+    const owners = new Map();
+    for (const building of world.buildings || []) {
+      for (const cell of building.cells || []) owners.set(keyOf(cell.x, cell.y), building.id);
+    }
+    return owners;
+  }
+
+  function repairExteriorDoor(world, building, door, cells, owners) {
+    const cell = { x: door.x, y: door.y };
+    let sides = boundarySides(cell, cells, true, building);
+    if (!sides.length) sides = boundarySides(cell, cells);
+    if (sides.length && !sides.includes(door.side)) door.side = sides[0];
+    const [dx, dy] = DIR[door.side] || DIR.north;
+    door.orientation = door.side === "north" || door.side === "south" ? "horizontal" : "vertical";
+    door.exterior = true;
+    setTile(world, door.x, door.y, TILE.FLOOR);
+    const corridor = [{ x: door.x, y: door.y }];
+
+    // Clear the inside landing and a two-tile-wide outside stoop.
+    const insideX = door.x - dx;
+    const insideY = door.y - dy;
+    if (cells.has(keyOf(insideX, insideY))) setTile(world, insideX, insideY, TILE.FLOOR);
+    const tangentX = -dy;
+    const tangentY = dx;
+    for (let step = 1; step <= 14; step += 1) {
+      const x = door.x + dx * step;
+      const y = door.y + dy * step;
+      if (!inBounds(world, x, y)) break;
+      const owner = owners.get(keyOf(x, y));
+      if (owner && owner !== building.id) break;
+      const tile = getTile(world, x, y);
+      corridor.push({ x, y });
+      if (tile === TILE.ROAD) break;
+      if (step === 1) setTile(world, x, y, TILE.FLOOR);
+      else if (tile === TILE.TREE || tile === TILE.WATER) setTile(world, x, y, TILE.GRASS);
+      for (const offset of [-1, 1]) {
+        const sx = x + tangentX * offset;
+        const sy = y + tangentY * offset;
+        if (owners.has(keyOf(sx, sy))) continue;
+        const sideTile = getTile(world, sx, sy);
+        if (sideTile === TILE.TREE || sideTile === TILE.WATER) setTile(world, sx, sy, TILE.GRASS);
+      }
+    }
+    return corridor;
+  }
+
+  function floodFloors(world, cells, startKeys) {
+    const reached = new Set();
+    const queue = [];
+    for (const key of startKeys) {
+      if (!cells.has(key)) continue;
+      const [x, y] = key.split(",").map(Number);
+      if (getTile(world, x, y) !== TILE.FLOOR) continue;
+      reached.add(key); queue.push({ x, y });
+    }
+    while (queue.length) {
+      const cell = queue.shift();
+      for (const [dx, dy] of Object.values(DIR)) {
+        const x = cell.x + dx;
+        const y = cell.y + dy;
+        const key = keyOf(x, y);
+        if (reached.has(key) || !cells.has(key) || getTile(world, x, y) !== TILE.FLOOR) continue;
+        reached.add(key); queue.push({ x, y });
+      }
+    }
+    return reached;
+  }
+
+  function connectInteriorRooms(world, building, cells, report) {
+    const floors = () => (building.cells || []).filter((cell) => getTile(world, cell.x, cell.y) === TILE.FLOOR);
+    const exterior = (building.doors || []).filter((door) => door.exterior);
+    // Use the primary entrance as the connectivity root. Starting from every
+    // exterior door can hide a split building where each half has its own exit
+    // but the rooms still cannot be crossed from inside.
+    const starts = exterior.length ? [keyOf(exterior[0].x, exterior[0].y)] : floors().slice(0, 1).map((cell) => keyOf(cell.x, cell.y));
+    let reached = floodFloors(world, cells, starts);
+    for (let pass = 0; pass < 8; pass += 1) {
+      const allFloors = floors();
+      const unreachable = new Set(allFloors.map((cell) => keyOf(cell.x, cell.y)).filter((key) => !reached.has(key)));
+      if (!unreachable.size) break;
+      let bridge = null;
+      for (const wall of building.cells || []) {
+        if (getTile(world, wall.x, wall.y) !== TILE.WALL) continue;
+        let touchesReached = false;
+        let touchesUnreachable = false;
+        let reachedNeighbor = null;
+        for (const [side, [dx, dy]] of Object.entries(DIR)) {
+          const neighbor = keyOf(wall.x + dx, wall.y + dy);
+          if (reached.has(neighbor)) { touchesReached = true; reachedNeighbor = side; }
+          if (unreachable.has(neighbor)) touchesUnreachable = true;
+        }
+        if (touchesReached && touchesUnreachable) { bridge = { wall, side: reachedNeighbor || "north" }; break; }
+      }
+      if (!bridge) break;
+      makeDoor(world, building, bridge.wall, bridge.side, false, "interior");
+      report.interiorDoors += 1;
+      reached = floodFloors(world, cells, starts);
+    }
+  }
+
+  function relocateBlockedContainers(world, building, report) {
+    const tileSize = world.tileSize || 32;
+    const doors = building.doors || [];
+    const containers = (world.containers || []).filter((container) => container.buildingId === building.id);
+    const occupied = new Set(containers.map((container) => keyOf(Math.floor(container.x / tileSize), Math.floor(container.y / tileSize))));
+    for (const container of containers) {
+      const tx = Math.floor(container.x / tileSize);
+      const ty = Math.floor(container.y / tileSize);
+      const blocked = doors.some((door) => Math.abs(door.x - tx) + Math.abs(door.y - ty) <= 1);
+      if (!blocked) continue;
+      occupied.delete(keyOf(tx, ty));
+      const target = (building.cells || []).find((cell) =>
+        getTile(world, cell.x, cell.y) === TILE.FLOOR
+        && doors.every((door) => Math.abs(door.x - cell.x) + Math.abs(door.y - cell.y) >= 3)
+        && !occupied.has(keyOf(cell.x, cell.y))
+      );
+      if (!target) { occupied.add(keyOf(tx, ty)); continue; }
+      container.x = (target.x + .5) * tileSize;
+      container.y = (target.y + .5) * tileSize;
+      occupied.add(keyOf(target.x, target.y));
+      report.furnitureMoved += 1;
+    }
+  }
+
+  function carOverlapsCell(car, cell, tileSize) {
+    const x = (cell.x + .5) * tileSize;
+    const y = (cell.y + .5) * tileSize;
+    return Math.abs(car.x - x) < car.w / 2 + tileSize * .55 && Math.abs(car.y - y) < car.h / 2 + tileSize * .55;
+  }
+
+  function relocateBlockedCars(world, corridors, report) {
+    const tileSize = world.tileSize || 32;
+    for (const car of world.cars || []) {
+      if (!corridors.some((cell) => carOverlapsCell(car, cell, tileSize))) continue;
+      const originX = Math.floor(car.x / tileSize);
+      const originY = Math.floor(car.y / tileSize);
+      let target = null;
+      for (let radius = 2; radius <= 9 && !target; radius += 1) {
+        for (let oy = -radius; oy <= radius && !target; oy += 1) {
+          for (let ox = -radius; ox <= radius; ox += 1) {
+            if (Math.abs(ox) !== radius && Math.abs(oy) !== radius) continue;
+            const tx = originX + ox;
+            const ty = originY + oy;
+            if (getTile(world, tx, ty) !== TILE.ROAD) continue;
+            if (corridors.some((cell) => Math.hypot(cell.x - tx, cell.y - ty) < 2.5)) continue;
+            const x = (tx + .5) * tileSize;
+            const y = (ty + .5) * tileSize;
+            const occupied = (world.cars || []).some((other) => other !== car && Math.abs(other.x - x) < (other.w + car.w) / 2 && Math.abs(other.y - y) < (other.h + car.h) / 2);
+            if (!occupied) { target = { x, y }; break; }
+          }
+        }
+      }
+      if (!target) continue;
+      car.x = target.x; car.y = target.y;
+      report.carsMoved += 1;
+    }
+  }
+
+  function repairBuilding(world, building, owners, report) {
+    if (!building?.cells?.length || building.__accessRepairVersion === REPAIR_VERSION) return false;
+    building.doors ||= [];
+    const cells = buildingSet(building);
+    let changed = false;
+    let exterior = building.doors.filter((door) => door.exterior);
+    if (!exterior.length) {
+      const added = addBestExteriorDoor(world, building, cells, false);
+      if (added) { exterior.push(added); report.exteriorDoors += 1; changed = true; }
+    }
+    if (MAJOR.has(building.type) && exterior.length < 2 && building.w >= 7 && building.h >= 7) {
+      const added = addBestExteriorDoor(world, building, cells, true);
+      if (added) { exterior.push(added); report.serviceDoors += 1; changed = true; }
+    }
+    const corridors = [];
+    for (const door of exterior) {
+      const oldSide = door.side;
+      corridors.push(...repairExteriorDoor(world, building, door, cells, owners));
+      if (door.side !== oldSide) { report.doorSidesFixed += 1; changed = true; }
+    }
+    const beforeDoors = building.doors.length;
+    connectInteriorRooms(world, building, cells, report);
+    if (building.doors.length !== beforeDoors) changed = true;
+    relocateBlockedContainers(world, building, report);
+    building.__entranceCorridors = corridors;
+    building.__accessRepairVersion = REPAIR_VERSION;
+    report.buildings += 1;
+    return changed;
+  }
+
+  function repairWorld(game, announce = false) {
+    const world = game.world;
+    if (!world?.buildings) return null;
+    const report = { buildings: 0, exteriorDoors: 0, serviceDoors: 0, interiorDoors: 0, doorSidesFixed: 0, furnitureMoved: 0, carsMoved: 0 };
+    const owners = ownerIndex(world);
+    let reindex = false;
+    const allCorridors = [];
+    for (const building of world.buildings) {
+      reindex = repairBuilding(world, building, owners, report) || reindex;
+      if (building.__entranceCorridors) allCorridors.push(...building.__entranceCorridors);
+    }
+    relocateBlockedCars(world, allCorridors, report);
+    if (reindex && typeof game.indexWorld === "function") game.indexWorld();
+    game.__buildingAccessReport = report;
+    if (announce && report.buildings) {
+      game.toast?.(`Access repaired: ${report.buildings} buildings, ${report.serviceDoors + report.exteriorDoors} new exits.`, "");
+    }
+    return report;
+  }
+
+  function findSafePlayerSpot(game, maxRadius = 72) {
+    const player = game.player;
+    if (!player || typeof game.circleBlocked !== "function") return false;
+    if (!game.circleBlocked(player.x, player.y, player.radius, true)) return false;
+    const originX = player.x;
+    const originY = player.y;
+    for (let radius = 4; radius <= maxRadius; radius += 4) {
+      const samples = Math.max(12, Math.ceil(radius / 3));
+      for (let index = 0; index < samples; index += 1) {
+        const angle = index / samples * Math.PI * 2;
+        const x = originX + Math.cos(angle) * radius;
+        const y = originY + Math.sin(angle) * radius;
+        if (!game.circleBlocked(x, y, player.radius, true)) {
+          player.x = x; player.y = y;
+          if (game.camera) { game.camera.x = x; game.camera.y = y; }
+          return true;
+        }
+      }
+    }
+    return false;
+  }
+
+  function install(game) {
+    if (!game || game.__playerBuildingAccessFixInstalled) return;
+    game.__playerBuildingAccessFixInstalled = true;
+    const priorNpcCombat = Boolean(game.__npcCharacterUpgradeInstalled);
+
+    // A smaller visual model should also have a smaller collision body.
+    const originalMakePlayer = typeof game.makePlayer === "function" ? game.makePlayer.bind(game) : null;
+    if (originalMakePlayer) game.makePlayer = function smallerPlayerBody(...args) {
+      const player = originalMakePlayer(...args); player.radius = 7.5; return player;
+    };
+    if (game.player) game.player.radius = 7.5;
+
+    const previousDrawPlayer = typeof game.drawPlayer === "function" ? game.drawPlayer.bind(game) : null;
+    if (previousDrawPlayer) game.drawPlayer = function slightlySmallerPlayer(ctx, shakeX = 0, shakeY = 0) {
+      const screen = this.worldToScreen(this.player.x, this.player.y, shakeX, shakeY);
+      ctx.save(); ctx.translate(screen.x, screen.y); ctx.scale(.9, .9); ctx.translate(-screen.x, -screen.y);
+      previousDrawPlayer(ctx, shakeX, shakeY); ctx.restore();
+    };
+
+    const originalMoveCircle = typeof game.moveCircle === "function" ? game.moveCircle.bind(game) : null;
+    if (originalMoveCircle) game.moveCircle = function cornerSlidingMove(entity, amountX, amountY, includeStructures = false) {
+      if (entity !== this.player) return originalMoveCircle(entity, amountX, amountY, includeStructures);
+      const oldX = entity.x;
+      const oldY = entity.y;
+      originalMoveCircle(entity, amountX, amountY, includeStructures);
+      const expected = Math.hypot(amountX, amountY);
+      let moved = Math.hypot(entity.x - oldX, entity.y - oldY);
+      if (expected < .25 || moved >= expected * .28) return;
+      const length = expected || 1;
+      const perpendicularX = -amountY / length;
+      const perpendicularY = amountX / length;
+      for (const nudge of [3, -3, 6, -6]) {
+        const x = oldX + perpendicularX * nudge;
+        const y = oldY + perpendicularY * nudge;
+        if (this.circleBlocked?.(x, y, entity.radius, includeStructures)) continue;
+        entity.x = x; entity.y = y;
+        originalMoveCircle(entity, amountX, amountY, includeStructures);
+        moved = Math.hypot(entity.x - oldX, entity.y - oldY);
+        if (moved >= expected * .28) return;
+      }
+      entity.x = oldX; entity.y = oldY;
+      originalMoveCircle(entity, amountX, amountY, includeStructures);
+    };
+
+    const originalUpdatePlayer = typeof game.updatePlayer === "function" ? game.updatePlayer.bind(game) : null;
+    if (originalUpdatePlayer) game.updatePlayer = function playerUnstuckUpdate(dt) {
+      const oldX = this.player?.x;
+      const oldY = this.player?.y;
+      originalUpdatePlayer(dt);
+      if (!this.player) return;
+      this.player.radius = 7.5;
+      const moved = Math.hypot(this.player.x - oldX, this.player.y - oldY);
+      if (this.player.movingNow && moved < .035) this.player.__stuckTime = (this.player.__stuckTime || 0) + dt;
+      else this.player.__stuckTime = Math.max(0, (this.player.__stuckTime || 0) - dt * 2);
+      if (this.circleBlocked?.(this.player.x, this.player.y, this.player.radius, true) || this.player.__stuckTime > .55) {
+        const fixed = findSafePlayerSpot(this, this.player.__stuckTime > .55 ? 18 : 72);
+        if (fixed) this.player.__stuckTime = 0;
+      }
+    };
+
+    const originalStreaming = typeof game.updateWorldStreaming === "function" ? game.updateWorldStreaming.bind(game) : null;
+    if (originalStreaming) game.updateWorldStreaming = function repairedStreaming(force = false) {
+      const previousChunk = this.lastStreamChunk;
+      const result = originalStreaming(force);
+      if (force || previousChunk !== this.lastStreamChunk) repairWorld(this, false);
+      return result;
+    };
+
+    game.repairBuildingAccess = (announce = true) => repairWorld(game, announce);
+
+    // The earlier NPC add-on already handles hostile Negan. This layer adds the
+    // first hit on neutral survivors, after which they become provoked and fight back.
+    const originalAimVector = typeof game.aimVector === "function" ? game.aimVector.bind(game) : null;
+    if (originalAimVector) game.aimVector = function neutralCapableAim() {
+      const baseAim = originalAimVector();
+      const pointerFine = this.input?.pointer?.active && typeof matchMedia === "function" && !matchMedia("(pointer: coarse)").matches;
+      if (pointerFine || !this.player) return baseAim;
+      const equipped = WEAPONS[this.player.equipped || "fists"] || WEAPONS.fists;
+      const maxRange = equipped[0] === "ranged" ? equipped[2] : equipped[2] + 24;
+      let threatDistance = Infinity;
+      for (const zombie of this.zombies || []) if (!zombie.dead) threatDistance = Math.min(threatDistance, distance(zombie, this.player));
+      for (const survivor of this.survivors || []) {
+        if (!survivor.dead && (survivor.attitude === "aggressive" || survivor.provoked)) threatDistance = Math.min(threatDistance, distance(survivor, this.player));
+      }
+      let target = null;
+      let best = maxRange;
+      for (const survivor of this.survivors || []) {
+        if (survivor.dead || survivor.attitude !== "neutral" || survivor.provoked) continue;
+        const dx = survivor.x - this.player.x;
+        const dy = survivor.y - this.player.y;
+        const d = Math.hypot(dx, dy) || 1;
+        const facingDot = dx / d * (this.player.facingX || 1) + dy / d * (this.player.facingY || 0);
+        if (d < best && d < threatDistance && facingDot > .28 && (!this.hasVision || this.hasVision(this.player, survivor))) {
+          best = d; target = survivor;
+        }
+      }
+      if (!target) return baseAim;
+      const dx = target.x - this.player.x;
+      const dy = target.y - this.player.y;
+      const length = Math.hypot(dx, dy) || 1;
+      return { x: dx / length, y: dy / length };
+    };
+
+    const originalDamageSurvivor = typeof game.damageSurvivor === "function" ? game.damageSurvivor.bind(game) : null;
+    const originalAttack = typeof game.attack === "function" ? game.attack.bind(game) : null;
+    if (originalAttack && originalDamageSurvivor) game.attack = function survivorFriendlyFire(...args) {
+      const oldCooldown = this.player.attackCooldown || 0;
+      const oldAnim = this.player.attackAnim || 0;
+      originalAttack(...args);
+      if (oldCooldown > 0 || (this.player.attackAnim || 0) <= oldAnim) return;
+      const equipped = WEAPONS[this.player.equipped || "fists"] || WEAPONS.fists;
+      const [mode, damage, range] = equipped;
+      const aimX = this.player.facingX || 1;
+      const aimY = this.player.facingY || 0;
+      let target = null;
+      let best = range + 22;
+      for (const survivor of this.survivors || []) {
+        if (survivor.dead) continue;
+        const firstNeutralHit = survivor.attitude === "neutral" && !survivor.provoked;
+        const fallbackHostileHit = !priorNpcCombat && (survivor.attitude === "aggressive" || survivor.provoked);
+        if (!firstNeutralHit && !fallbackHostileHit) continue;
+        const dx = survivor.x - this.player.x;
+        const dy = survivor.y - this.player.y;
+        const d = Math.hypot(dx, dy) || 1;
+        if (d > best) continue;
+        const dot = dx / d * aimX + dy / d * aimY;
+        if (dot < (mode === "ranged" ? .975 : .18) || (this.hasVision && !this.hasVision(this.player, survivor))) continue;
+        target = survivor; best = d;
+      }
+      if (!target) return;
+      if (mode === "ranged") {
+        for (const zombie of this.zombies || []) {
+          if (zombie.dead) continue;
+          const dx = zombie.x - this.player.x;
+          const dy = zombie.y - this.player.y;
+          const d = Math.hypot(dx, dy) || 1;
+          if (d < best && dx / d * aimX + dy / d * aimY > .975) return;
+        }
+      }
+      originalDamageSurvivor(target, damage * (mode === "ranged" ? .9 : 1), null);
+      if (!target.dead) {
+        target.provoked = true;
+        target.hostile = true;
+        target.state = "hostile";
+        target.__targetKind = "player";
+        target.__decision = .3;
+        target.speech = "That was your last warning.";
+        target.speechTimer = 6;
+        this.toast?.(`${target.name || "The survivor"} is now hostile.`, "danger");
+      }
+    };
+
+    // Keep provoked neutral NPCs locked onto the player without renaming them Negan.
+    const originalUpdateSurvivors = typeof game.updateSurvivors === "function" ? game.updateSurvivors.bind(game) : null;
+    if (originalUpdateSurvivors && priorNpcCombat) game.updateSurvivors = function provokedNeutralUpdate(dt) {
+      for (const survivor of this.survivors || []) {
+        if (!survivor.dead && survivor.attitude === "neutral" && survivor.provoked) {
+          survivor.__targetKind = "player"; survivor.state = "hostile"; survivor.__decision = Math.max(.22, survivor.__decision || 0);
+        }
+      }
+      const result = originalUpdateSurvivors(dt);
+      for (const survivor of this.survivors || []) {
+        if (!survivor.dead && survivor.attitude === "neutral" && survivor.provoked) {
+          survivor.__targetKind = "player"; survivor.state = "hostile"; survivor.__decision = Math.max(.22, survivor.__decision || 0);
+        }
+      }
+      return result;
+    };
+
+    const originalStartNew = typeof game.startNew === "function" ? game.startNew.bind(game) : null;
+    if (originalStartNew) game.startNew = function accessFixedStart(...args) {
+      const result = originalStartNew(...args);
+      if (this.player) this.player.radius = 7.5;
+      repairWorld(this, true); findSafePlayerSpot(this, 72);
+      return result;
+    };
+    const originalLoadSaved = typeof game.loadSaved === "function" ? game.loadSaved.bind(game) : null;
+    if (originalLoadSaved) game.loadSaved = function accessFixedLoad(...args) {
+      const result = originalLoadSaved(...args);
+      if (this.player) this.player.radius = 7.5;
+      repairWorld(this, true); findSafePlayerSpot(this, 72);
+      return result;
+    };
+
+    if (game.world) repairWorld(game, false);
+    game.toast?.("Player collision and building-access repair installed.");
+  }
+
+  if (window.__walkers) install(window.__walkers);
+  else window.addEventListener("load", () => install(window.__walkers), { once: true });
 })();
+
 
 
