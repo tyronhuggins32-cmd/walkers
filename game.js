@@ -4832,13 +4832,72 @@ flashlight: false
       this.camera.y += (this.player.y - this.camera.y) * smoothing;
     }
     moveCircle(entity, amountX, amountY, includeStructures = false) {
-      const nextX = entity.x + amountX;
-      if (!this.circleBlocked(nextX, entity.y, entity.radius, includeStructures)) entity.x = nextX;
-      const nextY = entity.y + amountY;
-      if (!this.circleBlocked(entity.x, nextY, entity.radius, includeStructures)) entity.y = nextY;
-      entity.x = clamp(entity.x, entity.radius, this.world.width * TILE_SIZE - entity.radius);
-      entity.y = clamp(entity.y, entity.radius, this.world.height * TILE_SIZE - entity.radius);
+  if (entity === this.player && this.player.floorLevel === 1) {
+    const nextX = entity.x + amountX;
+
+    if (
+      !this.upperFloorCircleBlocked(
+        nextX,
+        entity.y,
+        entity.radius
+      )
+    ) {
+      entity.x = nextX;
     }
+
+    const nextY = entity.y + amountY;
+
+    if (
+      !this.upperFloorCircleBlocked(
+        entity.x,
+        nextY,
+        entity.radius
+      )
+    ) {
+      entity.y = nextY;
+    }
+
+    return;
+  }
+
+  const nextX = entity.x + amountX;
+
+  if (
+    !this.circleBlocked(
+      nextX,
+      entity.y,
+      entity.radius,
+      includeStructures
+    )
+  ) {
+    entity.x = nextX;
+  }
+
+  const nextY = entity.y + amountY;
+
+  if (
+    !this.circleBlocked(
+      entity.x,
+      nextY,
+      entity.radius,
+      includeStructures
+    )
+  ) {
+    entity.y = nextY;
+  }
+
+  entity.x = clamp(
+    entity.x,
+    entity.radius,
+    this.world.width * TILE_SIZE - entity.radius
+  );
+
+  entity.y = clamp(
+    entity.y,
+    entity.radius,
+    this.world.height * TILE_SIZE - entity.radius
+  );
+}
     circleBlocked(x, y, radius, includeStructures = true) {
       const minX = Math.floor((x - radius) / TILE_SIZE);
       const maxX = Math.floor((x + radius) / TILE_SIZE);
@@ -5455,31 +5514,57 @@ flashlight: false
       this.toast(`${door.open ? "Opened" : "Closed"} ${door.exterior ? "exterior " : ""}door.`);
     }
     interact() {
-      if (this.mode !== "playing") return;
-      if (this.panelOpen === "lootPanel") {
-        this.takeAllLoot();
-        return;
-      }
-      if (this.panelOpen) return;
-      const searchable = this.nearestWorldInteractable();
-      if (!searchable) {
-        this.toast("Nothing nearby to search.");
-        return;
-      }
-      const ref = searchable.ref;
-      if (searchable.source === "door") {
-        this.toggleDoor(ref);
-        return;
-      }
-      ref.openAnim = 1;
-      if (!ref.searched) {
-        ref.searched = true;
-        this.stats.searched += 1;
-        this.emitNoise(this.player.x, this.player.y, 55, "searching");
-        this.updateObjective();
-      }
-      this.openContainer = ref;
-      $("#lootTitle").textContent = titleCase(searchable.kind || "container");
+  if (this.mode !== "playing") return;
+
+  if (this.panelOpen === "lootPanel") {
+    this.takeAllLoot();
+    return;
+  }
+
+  if (this.panelOpen) return;
+
+  const stair = this.nearestStair();
+
+  if (stair) {
+    this.useStairs(stair.ref);
+    return;
+  }
+
+  if (this.player.floorLevel === 1) {
+    this.toast("Nothing else is searchable on this floor.");
+    return;
+  }
+
+  const searchable = this.nearestWorldInteractable();
+
+  if (!searchable) {
+    this.toast("Nothing nearby to search.");
+    return;
+  }
+
+  const ref = searchable.ref;
+
+  if (searchable.source === "door") {
+    this.toggleDoor(ref);
+    return;
+  }
+
+  ref.openAnim = 1;
+
+  if (!ref.searched) {
+    ref.searched = true;
+    this.stats.searched += 1;
+    this.emitNoise(this.player.x, this.player.y, 55, "searching");
+    this.updateObjective();
+  }
+
+  this.openContainer = ref;
+  $("#lootTitle").textContent = titleCase(
+    searchable.kind || "container"
+  );
+  this.renderLoot();
+  this.openPanel("lootPanel");
+}
       this.renderLoot();
       this.openPanel("lootPanel");
     }
@@ -6257,16 +6342,49 @@ flashlight: false
       for (let ty = minTileY; ty <= maxTileY; ty += 1) {
         for (let tx = minTileX; tx <= maxTileX; tx += 1) this.drawTile(ctx, tx, ty, shakeX, shakeY);
       }
-      for (const blood of this.blood) {
-        if (this.isHiddenInside(blood)) continue;
-        const p = this.worldToScreen(blood.x, blood.y, shakeX, shakeY);
-        if (p.x < -20 || p.y < -20 || p.x > width + 20 || p.y > height + 20) continue;
-        ctx.fillStyle = `rgba(85, 25, 24, ${blood.alpha})`;
-        ctx.beginPath();
-        ctx.arc(p.x, p.y, blood.size, 0, Math.PI * 2);
-        ctx.fill();
-      }
-      this.drawCars(ctx, shakeX, shakeY);
+      const upstairs =
+  this.player.floorLevel === 1 &&
+  this.currentUpperFloor();
+
+if (upstairs) {
+  this.drawUpperFloorLayer(ctx, shakeX, shakeY);
+  this.drawPlayer(ctx, shakeX, shakeY);
+} else {
+  for (const blood of this.blood) {
+    if (this.isHiddenInside(blood)) continue;
+
+    const p = this.worldToScreen(
+      blood.x,
+      blood.y,
+      shakeX,
+      shakeY
+    );
+
+    if (
+      p.x < -20 ||
+      p.y < -20 ||
+      p.x > width + 20 ||
+      p.y > height + 20
+    ) {
+      continue;
+    }
+
+    ctx.fillStyle = `rgba(85, 25, 24, ${blood.alpha})`;
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, blood.size, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  this.drawCars(ctx, shakeX, shakeY);
+  this.drawInteriorDecor(ctx, shakeX, shakeY);
+  this.drawContainers(ctx, shakeX, shakeY);
+  this.drawStructures(ctx, shakeX, shakeY);
+  this.drawEffects(ctx, shakeX, shakeY, true);
+  this.drawZombies(ctx, shakeX, shakeY);
+  this.drawSurvivors(ctx, shakeX, shakeY);
+  this.drawPlayer(ctx, shakeX, shakeY);
+  this.drawEffects(ctx, shakeX, shakeY, false);
+}
 this.drawInteriorDecor(ctx, shakeX, shakeY);
 this.drawContainers(ctx, shakeX, shakeY);
       this.drawStructures(ctx, shakeX, shakeY);
