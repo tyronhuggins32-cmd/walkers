@@ -290,5 +290,753 @@
 
   if (window.__walkers) install(window.__walkers);
   else window.addEventListener("load", () => install(window.__walkers), { once: true });
+})();/* WALKERS — NPC + CHARACTER UPGRADE ADD-ON
+   Paste this entire file at the VERY BOTTOM of game.js, after the zombie add-on.
+   This patches survivor performance/attitudes and replaces only the player and
+   survivor drawings. It does not replace the map, loot, buildings, or saves. */
+
+(() => {
+  "use strict";
+
+  const ATTITUDE = Object.freeze({
+    passive:    { label: "PASSIVE", color: "#8dc9ba", speed: 91 },
+    neutral:    { label: "NEUTRAL", color: "#d5bd72", speed: 96 },
+    aggressive: { label: "HOSTILE", color: "#e35f59", speed: 108 }
+  });
+
+  const WEAPONS = Object.freeze({
+    fists:          { name: "fists", mode: "melee", damage: 7,  range: 40,  cooldown: .48, noise: 24 },
+    knife:          { name: "knife", mode: "melee", damage: 14, range: 46,  cooldown: .40, noise: 22 },
+    hammer:         { name: "hammer", mode: "melee", damage: 20, range: 51,  cooldown: .50, noise: 39 },
+    bat:            { name: "bat", mode: "melee", damage: 22, range: 58,  cooldown: .62, noise: 42 },
+    axe:            { name: "axe", mode: "melee", damage: 36, range: 62,  cooldown: .82, noise: 48 },
+    machete:        { name: "machete", mode: "melee", damage: 28, range: 66, cooldown: .56, noise: 34 },
+    katana:         { name: "katana", mode: "melee", damage: 38, range: 74, cooldown: .70, noise: 31 },
+    crowbar:        { name: "crowbar", mode: "melee", damage: 24, range: 63, cooldown: .68, noise: 50 },
+    spear:          { name: "spear", mode: "melee", damage: 30, range: 88, cooldown: .74, noise: 34 },
+    sledgehammer:   { name: "sledgehammer", mode: "melee", damage: 44, range: 68, cooldown: 1.05, noise: 62 },
+    pistol:         { name: "9 mm pistol", mode: "ranged", damage: 42, range: 560, cooldown: .32, noise: 520 },
+    revolver:       { name: ".357 revolver", mode: "ranged", damage: 58, range: 650, cooldown: .48, noise: 650 },
+    machine_pistol: { name: "machine pistol", mode: "ranged", damage: 18, range: 430, cooldown: .10, noise: 545 },
+    smg:            { name: "SMG", mode: "ranged", damage: 21, range: 460, cooldown: .12, noise: 520 },
+    shotgun:        { name: "shotgun", mode: "ranged", damage: 55, range: 390, cooldown: .95, noise: 760 },
+    double_barrel:  { name: "double barrel", mode: "ranged", damage: 68, range: 360, cooldown: 1.12, noise: 820 },
+    rifle:          { name: "hunting rifle", mode: "ranged", damage: 72, range: 830, cooldown: .82, noise: 860 },
+    carbine:        { name: "carbine", mode: "ranged", damage: 46, range: 690, cooldown: .24, noise: 720 },
+    assault_rifle:  { name: "assault rifle", mode: "ranged", damage: 35, range: 760, cooldown: .15, noise: 790 },
+    lever_rifle:    { name: "lever rifle", mode: "ranged", damage: 66, range: 810, cooldown: .68, noise: 835 }
+  });
+
+  const PALETTES = Object.freeze({
+    player: {
+      skin: "#bd8e6d", darkSkin: "#8c624d", uniform: "#343a3c", uniform2: "#22282a",
+      vest: "#171c1e", armor: "#596064", pants: "#3c4244", boot: "#181b1b", accent: "#b5974a"
+    },
+    passive: {
+      skin: "#c89b79", darkSkin: "#976e55", uniform: "#536a63", uniform2: "#354942",
+      vest: "#394d47", armor: "#768780", pants: "#3d4744", boot: "#202625", accent: "#8dc9ba"
+    },
+    neutral: {
+      skin: "#a9755b", darkSkin: "#754f3e", uniform: "#4c5050", uniform2: "#303536",
+      vest: "#282e2f", armor: "#697072", pants: "#383e40", boot: "#1d2021", accent: "#d5bd72"
+    },
+    aggressive: {
+      skin: "#b78263", darkSkin: "#815943", uniform: "#292b2c", uniform2: "#17191a",
+      vest: "#151718", armor: "#4e5152", pants: "#303234", boot: "#151616", accent: "#b4423f"
+    }
+  });
+
+  const RANGED = new Set(["pistol", "revolver", "machine_pistol", "smg", "shotgun", "double_barrel", "rifle", "carbine", "assault_rifle", "lever_rifle"]);
+  const THRUST = new Set(["knife", "spear"]);
+  const TWO_HAND = new Set(["bat", "axe", "machete", "katana", "crowbar", "spear", "sledgehammer"]);
+
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  const distance = (a, b) => Math.hypot(a.x - b.x, a.y - b.y);
+  const ease = (value) => 1 - (1 - clamp(value, 0, 1)) ** 3;
+
+  function hash(value) {
+    const text = String(value ?? "survivor");
+    let result = 2166136261;
+    for (let i = 0; i < text.length; i += 1) {
+      result ^= text.charCodeAt(i);
+      result = Math.imul(result, 16777619);
+    }
+    return (result >>> 0) / 4294967295;
+  }
+
+  function weaponFor(id) {
+    return WEAPONS[id] || WEAPONS.knife;
+  }
+
+  function chooseAttitude(survivor) {
+    if (ATTITUDE[survivor.attitude]) return survivor.attitude;
+    const roll = hash(`${survivor.id}:${Math.floor(survivor.x || 0)}:${Math.floor(survivor.y || 0)}:attitude`);
+    if (roll < .43) return "passive";
+    if (roll < .80) return "neutral";
+    return "aggressive";
+  }
+
+  function upgradeSurvivor(survivor) {
+    survivor.attitude = chooseAttitude(survivor);
+    survivor.radius = survivor.radius || 11;
+    survivor.moveBlend = survivor.moveBlend || 0;
+    survivor.animTime = survivor.animTime || hash(`${survivor.id}:phase`) * Math.PI * 2;
+    survivor.__vx = Number.isFinite(survivor.__vx) ? survivor.__vx : 0;
+    survivor.__vy = Number.isFinite(survivor.__vy) ? survivor.__vy : 0;
+    survivor.__stuck = survivor.__stuck || 0;
+    survivor.__decision = survivor.__decision || hash(`${survivor.id}:think`) * .28;
+    survivor.__npcUpgrade = true;
+
+    if (survivor.attitude === "aggressive") {
+      survivor.name = "Negan";
+      survivor.role = "raider";
+      survivor.courage = Math.max(.92, survivor.courage || 0);
+      survivor.hostile = true;
+      if (!survivor.__neganLoadout) {
+        const gunNegan = hash(`${survivor.id}:negan-weapon`) > .52;
+        survivor.weapon = gunNegan ? "revolver" : "bat";
+        survivor.ammo = Math.max(survivor.ammo || 0, gunNegan ? 30 : 0);
+        survivor.__neganLoadout = true;
+      }
+    } else if (survivor.attitude === "passive") {
+      survivor.role = survivor.role === "medic" ? "medic" : "civilian";
+      survivor.courage = Math.min(.44, survivor.courage || .38);
+      survivor.hostile = false;
+    } else {
+      survivor.hostile = Boolean(survivor.provoked);
+    }
+    return survivor;
+  }
+
+  function makeGrid(entities, cellSize, accept = () => true) {
+    const grid = new Map();
+    for (const entity of entities || []) {
+      if (!accept(entity)) continue;
+      const key = `${Math.floor(entity.x / cellSize)},${Math.floor(entity.y / cellSize)}`;
+      if (!grid.has(key)) grid.set(key, []);
+      grid.get(key).push(entity);
+    }
+    return { cells: grid, size: cellSize };
+  }
+
+  function nearby(grid, x, y, radius) {
+    const results = [];
+    const minX = Math.floor((x - radius) / grid.size);
+    const maxX = Math.floor((x + radius) / grid.size);
+    const minY = Math.floor((y - radius) / grid.size);
+    const maxY = Math.floor((y + radius) / grid.size);
+    for (let cy = minY; cy <= maxY; cy += 1) {
+      for (let cx = minX; cx <= maxX; cx += 1) {
+        const cell = grid.cells.get(`${cx},${cy}`);
+        if (cell) results.push(...cell);
+      }
+    }
+    return results;
+  }
+
+  function nearestZombie(game, survivor, grid, radius) {
+    let best = null;
+    let bestDistance = radius;
+    for (const zombie of nearby(grid, survivor.x, survivor.y, radius)) {
+      const d = distance(survivor, zombie);
+      if (d < bestDistance) {
+        best = zombie;
+        bestDistance = d;
+      }
+    }
+    return { entity: best, distance: bestDistance };
+  }
+
+  function setSpeech(survivor, text) {
+    if ((survivor.speechTimer || 0) > 0) return;
+    survivor.speech = text;
+    survivor.speechTimer = 5.5;
+  }
+
+  function attackPlayer(game, survivor, weapon) {
+    const player = game.player;
+    const dx = player.x - survivor.x;
+    const dy = player.y - survivor.y;
+    const length = Math.hypot(dx, dy) || 1;
+    survivor.angle = Math.atan2(dy, dx);
+    survivor.attackCooldown = weapon.cooldown * (.88 + Math.random() * .24);
+    survivor.attackAnim = weapon.mode === "ranged" ? .24 : .38;
+
+    if (weapon.mode === "ranged") {
+      if ((survivor.ammo || 0) <= 0) {
+        survivor.weapon = "bat";
+        survivor.attackCooldown = .24;
+        return;
+      }
+      survivor.ammo -= 1;
+      const accuracy = clamp(.57 + (survivor.courage || .8) * .25 - Math.max(0, length - 220) / 1500, .35, .85);
+      const hit = Math.random() < accuracy;
+      const endX = hit ? player.x : player.x + (Math.random() - .5) * 110;
+      const endY = hit ? player.y : player.y + (Math.random() - .5) * 110;
+      game.effects?.push({ type: "tracer", x: survivor.x, y: survivor.y, x2: endX, y2: endY, life: .08, maxLife: .08 });
+      game.effects?.push({ type: "muzzle", x: survivor.x + dx / length * 20, y: survivor.y + dy / length * 20, life: .09, maxLife: .09 });
+      game.emitNoise?.(survivor.x, survivor.y, weapon.noise, `${survivor.name}'s ${weapon.name}`);
+      if (hit && player.hurtCooldown <= 0) {
+        const damage = weapon.damage * (.20 + Math.random() * .12);
+        player.health = Math.max(0, player.health - damage);
+        player.hurtCooldown = .48;
+        player.hurtAnim = .3;
+        game.camera.shake = Math.max(game.camera.shake || 0, 6);
+        game.addBlood?.(player.x, player.y, 4);
+        game.toast?.(`Negan shot you: -${Math.round(damage)} health`, "danger");
+      }
+    } else if (length <= weapon.range + (player.radius || 11) + 8 && player.hurtCooldown <= 0) {
+      const damage = weapon.damage * (.36 + Math.random() * .16);
+      player.health = Math.max(0, player.health - damage);
+      player.hurtCooldown = .48;
+      player.hurtAnim = .3;
+      game.camera.shake = Math.max(game.camera.shake || 0, 7);
+      game.addBlood?.(player.x, player.y, 3);
+      game.emitNoise?.(survivor.x, survivor.y, weapon.noise, "hostile melee");
+      game.toast?.(`Negan hit you: -${Math.round(damage)} health`, "danger");
+    }
+  }
+
+  function pixelBar(ctx, x1, y1, x2, y2, width, color, outline = "#121516") {
+    const dx = x2 - x1;
+    const dy = y2 - y1;
+    const length = Math.hypot(dx, dy) || 1;
+    ctx.save();
+    ctx.translate(Math.round(x1), Math.round(y1));
+    ctx.rotate(Math.atan2(dy, dx));
+    ctx.fillStyle = outline;
+    ctx.fillRect(-1, -Math.ceil(width / 2) - 1, Math.ceil(length) + 2, Math.ceil(width) + 2);
+    ctx.fillStyle = color;
+    ctx.fillRect(0, -Math.ceil(width / 2), Math.ceil(length), Math.ceil(width));
+    ctx.restore();
+  }
+
+  function pixelGun(ctx, id, x, y, dx, dy, firing) {
+    const angle = Math.atan2(dy, dx);
+    const longGun = ["smg", "shotgun", "double_barrel", "rifle", "carbine", "assault_rifle", "lever_rifle"].includes(id);
+    const length = longGun ? (id === "rifle" || id === "lever_rifle" ? 29 : 25) : 15;
+    ctx.save();
+    ctx.translate(Math.round(x), Math.round(y));
+    ctx.rotate(angle);
+    ctx.fillStyle = "#111516"; ctx.fillRect(-5, -4, length + 9, 8);
+    ctx.fillStyle = id === "lever_rifle" || id === "shotgun" || id === "double_barrel" ? "#70482d" : "#343a3c";
+    ctx.fillRect(-4, -3, longGun ? 13 : 10, 6);
+    ctx.fillStyle = "#171b1c"; ctx.fillRect(7, -2, length - 5, 4);
+    ctx.fillStyle = "#60676a"; ctx.fillRect(9, -1, length - 7, 1);
+    ctx.fillStyle = "#1a1d1e"; ctx.fillRect(longGun ? 5 : 2, 3, 5, 6);
+    if (longGun) { ctx.fillStyle = "#24292a"; ctx.fillRect(-10, -3, 7, 6); }
+    if (firing) {
+      ctx.fillStyle = "rgba(255,213,120,.92)";
+      ctx.beginPath(); ctx.moveTo(length + 4, 0); ctx.lineTo(length + 12, -5); ctx.lineTo(length + 9, 0); ctx.lineTo(length + 12, 5); ctx.closePath(); ctx.fill();
+    }
+    ctx.restore();
+  }
+
+  function pixelMelee(ctx, id, x, y, dx, dy) {
+    const angle = Math.atan2(dy, dx);
+    ctx.save();
+    ctx.translate(Math.round(x), Math.round(y));
+    ctx.rotate(angle);
+    const long = id === "spear" ? 36 : id === "katana" ? 30 : id === "machete" ? 24 : 22;
+    ctx.fillStyle = "#171412"; ctx.fillRect(-7, -3, long + 8, 6);
+    ctx.fillStyle = id === "bat" ? "#765136" : "#65452e"; ctx.fillRect(-5, -2, id === "bat" ? long : 13, 4);
+    if (id === "axe" || id === "sledgehammer" || id === "hammer") {
+      ctx.fillStyle = "#858c8e"; ctx.fillRect(long - 6, -7, 8, 14);
+      ctx.fillStyle = "#c4cbca"; ctx.fillRect(long - 5, -6, 2, 12);
+    } else if (id === "crowbar") {
+      ctx.fillStyle = "#8d3f37"; ctx.fillRect(4, -2, long - 3, 4); ctx.fillRect(long - 1, -6, 3, 7);
+    } else if (id !== "bat") {
+      ctx.fillStyle = "#aeb7b7";
+      if (id === "spear") { ctx.beginPath(); ctx.moveTo(long + 5, 0); ctx.lineTo(long - 1, -5); ctx.lineTo(long - 1, 5); ctx.closePath(); ctx.fill(); }
+      else { ctx.fillRect(10, -2, long - 8, 4); ctx.fillStyle = "#d2d7d4"; ctx.fillRect(12, -2, long - 10, 1); }
+    }
+    ctx.restore();
+  }
+
+  function drawAttackTrail(ctx, x, y, angle, progress, range) {
+    if (progress < .24 || progress > .74) return;
+    const alpha = Math.sin(((progress - .24) / .5) * Math.PI) * .32;
+    ctx.strokeStyle = `rgba(225,230,218,${alpha})`;
+    ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(x, y, range, angle - .58, angle + .18); ctx.stroke();
+    ctx.strokeStyle = `rgba(255,255,239,${alpha * .75})`;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.arc(x, y, range + 2, angle - .45, angle + .14); ctx.stroke();
+  }
+
+  function drawTacticalHuman(ctx, entity, screen, options = {}) {
+    const palette = options.palette;
+    const fx = options.fx;
+    const fy = options.fy;
+    const side = fx >= 0 ? 1 : -1;
+    const phase = entity.animTime || 0;
+    const move = clamp(entity.moveBlend || 0, 0, 1);
+    const crouching = Boolean(options.crouching);
+    const sprinting = Boolean(options.sprinting);
+    const dead = Boolean(entity.dead);
+    const hurt = clamp((entity.hurtAnim || 0) / .3, 0, 1);
+    const flash = hurt > 0 && Math.floor(hurt * 22) % 2 === 0;
+    const weaponId = options.weaponId || "knife";
+    const weapon = weaponFor(weaponId);
+    const duration = options.attackDuration || (weapon.mode === "ranged" ? .24 : .36);
+    const remaining = clamp((entity.attackAnim || 0) / duration, 0, 1);
+    const progress = remaining > 0 ? 1 - remaining : 0;
+    const recoil = remaining > 0 ? Math.sin(progress * Math.PI) : 0;
+    const compress = crouching ? 5 : 0;
+    const stride = Math.sin(phase) * move * (sprinting ? 6.4 : crouching ? 2.8 : 4.6);
+    const bob = Math.abs(Math.cos(phase)) * move * (sprinting ? 2 : 1.2);
+
+    ctx.save();
+    const previousSmoothing = ctx.imageSmoothingEnabled;
+    ctx.imageSmoothingEnabled = false;
+    ctx.translate(Math.round(screen.x + Math.sin(hurt * Math.PI) * -side * 4), Math.round(screen.y + hurt * 2));
+    if (dead) { ctx.rotate(side * 1.28); ctx.translate(4, 7); ctx.globalAlpha = .7; }
+
+    ctx.fillStyle = "rgba(2,5,3,.44)";
+    ctx.beginPath(); ctx.ellipse(2, 2, sprinting ? 17 : 14, crouching ? 6 : 5, 0, 0, Math.PI * 2); ctx.fill();
+
+    const hipY = -11 + compress;
+    const leftFoot = { x: -5 + fx * stride, y: -1 + fy * stride * .4 };
+    const rightFoot = { x: 5 - fx * stride, y: -1 - fy * stride * .4 };
+    const pants = flash ? "#e8e4dc" : palette.pants;
+    pixelBar(ctx, -5, hipY, leftFoot.x, leftFoot.y, 6, pants);
+    pixelBar(ctx, 5, hipY, rightFoot.x, rightFoot.y, 6, pants);
+    ctx.fillStyle = flash ? "#f2eee7" : palette.armor;
+    ctx.fillRect(Math.round((-5 + leftFoot.x) / 2) - 3, -7 + compress, 6, 5);
+    ctx.fillRect(Math.round((5 + rightFoot.x) / 2) - 3, -7 + compress, 6, 5);
+    ctx.fillStyle = palette.boot;
+    ctx.fillRect(Math.round(leftFoot.x - 5 + side), Math.round(leftFoot.y - 2), 9, 5);
+    ctx.fillRect(Math.round(rightFoot.x - 5 + side), Math.round(rightFoot.y - 2), 9, 5);
+
+    const bodyX = (sprinting ? fx * 3 : 0);
+    const bodyY = -22 + compress + bob;
+    const shoulderY = bodyY - 1;
+    let weaponDX = fx;
+    let weaponDY = fy * .78;
+    let leftHand = { x: bodyX - 10 - fx * Math.cos(phase) * move * 2, y: bodyY + 8 };
+    let rightHand = { x: bodyX + 10 + fx * Math.cos(phase) * move * 2, y: bodyY + 8 };
+
+    if (weapon.mode === "ranged") {
+      const reach = 13 - recoil * (weaponId === "shotgun" || weaponId === "rifle" ? 5 : 3);
+      leftHand = { x: bodyX - 2 + fx * reach, y: bodyY + fy * reach * .58 };
+      rightHand = { x: bodyX + 2 + fx * (reach + 2), y: bodyY + 2 + fy * (reach + 2) * .58 };
+    } else if (remaining > 0) {
+      const base = Math.atan2(fy, fx);
+      if (THRUST.has(weaponId) || weaponId === "fists") {
+        const thrust = Math.sin(progress * Math.PI);
+        rightHand = { x: bodyX + fx * (11 + thrust * 12), y: bodyY + fy * (8 + thrust * 9) };
+        weaponDX = fx; weaponDY = fy;
+        if (weaponId === "spear") leftHand = { x: bodyX + fx * (6 + thrust * 5) - side * 2, y: bodyY + fy * (5 + thrust * 4) };
+      } else {
+        const overhead = ["axe", "hammer", "sledgehammer"].includes(weaponId);
+        const start = overhead ? -2.05 : -1.55;
+        const end = overhead ? .45 : 1.15;
+        const swing = base + start + (end - start) * ease(progress);
+        weaponDX = Math.cos(swing); weaponDY = Math.sin(swing);
+        rightHand = { x: bodyX + weaponDX * 15, y: bodyY + weaponDY * 12 };
+        if (TWO_HAND.has(weaponId)) leftHand = { x: bodyX + weaponDX * 8 - side * 2, y: bodyY + weaponDY * 6 + 1 };
+        drawAttackTrail(ctx, bodyX, bodyY + 2, swing, progress, weaponId === "katana" ? 31 : 27);
+      }
+    } else if (weaponId !== "fists") {
+      rightHand = { x: bodyX + side * 8 + fx * 6, y: bodyY + 5 + fy * 5 };
+    }
+
+    const sleeve = flash ? "#eeeae2" : palette.uniform2;
+    pixelBar(ctx, bodyX - 8, shoulderY, leftHand.x, leftHand.y, 6, sleeve);
+
+    ctx.fillStyle = "#111516"; ctx.fillRect(Math.round(bodyX - 11), Math.round(bodyY - 10), 22, 22);
+    ctx.fillStyle = flash ? "#eeeae2" : palette.uniform; ctx.fillRect(Math.round(bodyX - 9), Math.round(bodyY - 8), 18, 18);
+    ctx.fillStyle = flash ? "#dedad4" : palette.vest; ctx.fillRect(Math.round(bodyX - 8), Math.round(bodyY - 6), 16, 16);
+    ctx.fillStyle = flash ? "#f6f1e9" : palette.armor; ctx.fillRect(Math.round(bodyX - 6), Math.round(bodyY - 5), 12, 5);
+    ctx.fillStyle = palette.uniform2; ctx.fillRect(Math.round(bodyX - 1), Math.round(bodyY - 5), 2, 15);
+    ctx.fillStyle = palette.accent;
+    ctx.fillRect(Math.round(bodyX - 6), Math.round(bodyY + 4), 5, 5);
+    ctx.fillRect(Math.round(bodyX + 2), Math.round(bodyY + 4), 5, 5);
+    ctx.fillRect(Math.round(bodyX + 5), Math.round(bodyY - 3), 2, 2);
+
+    pixelBar(ctx, bodyX + 8, shoulderY, rightHand.x, rightHand.y, 6, sleeve);
+    ctx.fillStyle = flash ? "#fff4e8" : palette.skin;
+    ctx.fillRect(Math.round(leftHand.x - 3), Math.round(leftHand.y - 3), 6, 6);
+    ctx.fillRect(Math.round(rightHand.x - 3), Math.round(rightHand.y - 3), 6, 6);
+
+    if (!dead) {
+      if (weapon.mode === "ranged") {
+        const startX = (leftHand.x + rightHand.x) / 2;
+        const startY = (leftHand.y + rightHand.y) / 2;
+        pixelGun(ctx, weaponId, startX, startY, fx, fy * .78, remaining > .42);
+      } else if (weaponId !== "fists") {
+        pixelMelee(ctx, weaponId, rightHand.x, rightHand.y, weaponDX, weaponDY);
+      }
+    }
+
+    const headX = bodyX + fx * 2;
+    const headY = bodyY - 15 + fy;
+    const skin = flash ? "#fff4e8" : palette.skin;
+    ctx.fillStyle = "#15191a"; ctx.fillRect(Math.round(headX - 8), Math.round(headY - 8), 16, 15);
+    ctx.fillStyle = skin; ctx.fillRect(Math.round(headX - 6), Math.round(headY - 5), 12, 11);
+    ctx.fillStyle = palette.darkSkin; ctx.fillRect(Math.round(headX - (side > 0 ? 6 : -3)), Math.round(headY + 1), 3, 5);
+
+    // Chunky tactical helmet and brim inspired by the supplied military silhouettes.
+    ctx.fillStyle = "#111516"; ctx.fillRect(Math.round(headX - 9), Math.round(headY - 10), 18, 8);
+    ctx.fillStyle = palette.uniform2; ctx.fillRect(Math.round(headX - 7), Math.round(headY - 10), 14, 6);
+    ctx.fillStyle = palette.armor; ctx.fillRect(Math.round(headX - 4), Math.round(headY - 9), 7, 2);
+    ctx.fillStyle = "#101314"; ctx.fillRect(Math.round(headX - 9 + side * 2), Math.round(headY - 4), 18, 3);
+    ctx.fillStyle = "#737a7c"; ctx.fillRect(Math.round(headX + side * 4 - 2), Math.round(headY - 7), 3, 2);
+    ctx.fillStyle = "#24201c"; ctx.fillRect(Math.round(headX + side * 2 - 1), Math.round(headY - 1), 2, 2);
+    if (options.attitude === "aggressive") {
+      ctx.fillStyle = "#a73835"; ctx.fillRect(Math.round(headX - 6), Math.round(headY + 4), 12, 3);
+    } else {
+      ctx.fillStyle = "#7f4f3d"; ctx.fillRect(Math.round(headX - 1 + side), Math.round(headY + 4), 4, 1);
+    }
+
+    ctx.imageSmoothingEnabled = previousSmoothing;
+    ctx.restore();
+  }
+
+  function install(game) {
+    if (!game || game.__npcCharacterUpgradeInstalled) return;
+    game.__npcCharacterUpgradeInstalled = true;
+
+    const originalMakeSurvivor = typeof game.makeSurvivor === "function" ? game.makeSurvivor.bind(game) : null;
+    if (originalMakeSurvivor) {
+      game.makeSurvivor = function patchedMakeSurvivor(spawn) {
+        return upgradeSurvivor(originalMakeSurvivor(spawn));
+      };
+    }
+
+    const upgradeAll = () => {
+      for (const survivor of game.survivors || []) upgradeSurvivor(survivor);
+    };
+    upgradeAll();
+
+    const originalSurvivorAttack = typeof game.survivorAttack === "function" ? game.survivorAttack.bind(game) : null;
+    const originalDamageSurvivor = typeof game.damageSurvivor === "function" ? game.damageSurvivor.bind(game) : null;
+
+    game.updateSurvivors = function smootherSurvivorUpdate(frameDt) {
+      const dt = clamp(frameDt, 0, .05);
+      if (!this.player || !this.survivors) return;
+      upgradeAll();
+
+      const zombieGrid = makeGrid(this.zombies || [], 220, (zombie) => !zombie.dead);
+      const survivorGrid = makeGrid(this.survivors, 90, (survivor) => !survivor.dead);
+
+      for (const survivor of this.survivors) {
+        if (survivor.dead) continue;
+        survivor.attackCooldown = Math.max(0, (survivor.attackCooldown || 0) - dt);
+        survivor.hurtCooldown = Math.max(0, (survivor.hurtCooldown || 0) - dt);
+        survivor.attackAnim = Math.max(0, (survivor.attackAnim || 0) - dt);
+        survivor.hurtAnim = Math.max(0, (survivor.hurtAnim || 0) - dt);
+        survivor.speechTimer = Math.max(0, (survivor.speechTimer || 0) - dt);
+        survivor.wanderTimer = Math.max(0, (survivor.wanderTimer || 0) - dt);
+        survivor.__decision -= dt;
+        const playerDistance = distance(survivor, this.player);
+
+        // Far-away NPCs keep their state but cost almost no CPU until their chunk is nearby.
+        if (playerDistance > 1450) {
+          survivor.__vx *= Math.max(0, 1 - dt * 4);
+          survivor.__vy *= Math.max(0, 1 - dt * 4);
+          survivor.moveBlend += (0 - survivor.moveBlend) * Math.min(1, dt * 6);
+          continue;
+        }
+
+        let threat = survivor.__threat && !survivor.__threat.dead ? survivor.__threat : null;
+        let threatDistance = threat ? distance(survivor, threat) : Infinity;
+        const canSeePlayer = playerDistance < 650 && (typeof this.hasVision !== "function" || this.hasVision(survivor, this.player));
+
+        if (survivor.__decision <= 0) {
+          // Decisions are staggered per NPC. Movement still updates every frame.
+          survivor.__decision = .24 + hash(`${survivor.id}:${Math.floor((survivor.animTime || 0) * 2)}`) * .18;
+          const found = nearestZombie(this, survivor, zombieGrid, survivor.attitude === "passive" ? 460 : 540);
+          threat = found.entity;
+          threatDistance = found.distance;
+          survivor.__threat = threat;
+
+          if (survivor.attitude === "aggressive" && canSeePlayer && playerDistance < 610 && (!threat || threatDistance > 135)) {
+            survivor.__targetKind = "player";
+            survivor.state = "hostile";
+            setSpeech(survivor, playerDistance < 260 ? "You picked the wrong road." : "I see you.");
+          } else if (threat) {
+            survivor.__targetKind = "zombie";
+            const weapon = weaponFor(survivor.weapon);
+            if (survivor.attitude === "passive") survivor.state = "flee";
+            else {
+              const closeCount = nearby(zombieGrid, survivor.x, survivor.y, 190).filter((zombie) => distance(zombie, survivor) < 190).length;
+              const outmatched = closeCount >= (survivor.attitude === "aggressive" ? 4 : 2);
+              const emptyGun = weapon.mode === "ranged" && (survivor.ammo || 0) <= 0;
+              survivor.state = emptyGun || (outmatched && (survivor.courage || .5) < .76) ? "flee" : "fight";
+            }
+          } else if (survivor.wanderTimer <= 0) {
+            survivor.__targetKind = null;
+            survivor.state = playerDistance < 230 && survivor.attitude === "neutral" ? "observe" : "scavenge";
+            survivor.wanderTimer = 3.5 + hash(`${survivor.id}:${Math.floor(survivor.animTime || 0)}:wander`) * 5;
+            const angle = hash(`${survivor.id}:${survivor.wanderTimer}`) * Math.PI * 2;
+            const range = 90 + hash(`${survivor.id}:range:${survivor.wanderTimer}`) * 190;
+            survivor.targetX = survivor.x + Math.cos(angle) * range;
+            survivor.targetY = survivor.y + Math.sin(angle) * range;
+            if (survivor.attitude === "passive" && playerDistance < 165) setSpeech(survivor, "Easy—I don't want trouble.");
+            if (survivor.attitude === "neutral" && playerDistance < 190) setSpeech(survivor, "Keep it peaceful and we're fine.");
+          }
+        }
+
+        let target = null;
+        if (survivor.__targetKind === "player") target = this.player;
+        else if (survivor.__targetKind === "zombie") target = threat;
+        if (target?.dead) target = null;
+        const weapon = weaponFor(survivor.weapon);
+        let desiredX = 0;
+        let desiredY = 0;
+        let shouldMove = false;
+
+        if (target) {
+          const dx = target.x - survivor.x;
+          const dy = target.y - survivor.y;
+          const length = Math.hypot(dx, dy) || 1;
+          const targetDistance = length;
+          survivor.angle = Math.atan2(dy, dx);
+
+          if (survivor.state === "flee") {
+            desiredX = -dx / length;
+            desiredY = -dy / length;
+            shouldMove = true;
+          } else {
+            const preferred = weapon.mode === "ranged" ? Math.min(310, weapon.range * .55) : weapon.range * .68;
+            if (targetDistance > preferred + 36) {
+              desiredX = dx / length; desiredY = dy / length; shouldMove = true;
+            } else if (weapon.mode === "ranged" && targetDistance < Math.max(105, preferred - 90)) {
+              desiredX = -dx / length; desiredY = -dy / length; shouldMove = true;
+            }
+
+            const canSee = typeof this.hasVision !== "function" || this.hasVision(survivor, target);
+            if (survivor.attackCooldown <= 0 && targetDistance <= weapon.range + (target.radius || 11) && canSee) {
+              if (target === this.player) attackPlayer(this, survivor, weapon);
+              else if (originalSurvivorAttack) originalSurvivorAttack(survivor, target, weapon);
+            }
+          }
+        } else if (survivor.state === "scavenge") {
+          const dx = (survivor.targetX || survivor.x) - survivor.x;
+          const dy = (survivor.targetY || survivor.y) - survivor.y;
+          const length = Math.hypot(dx, dy);
+          if (length > 18) {
+            desiredX = dx / length; desiredY = dy / length; shouldMove = true;
+            survivor.angle = Math.atan2(dy, dx);
+          }
+        } else if (survivor.state === "observe" && playerDistance < 300) {
+          survivor.angle = Math.atan2(this.player.y - survivor.y, this.player.x - survivor.x);
+        }
+
+        // Local separation prevents NPCs stacking and vibrating against one another.
+        if (shouldMove) {
+          let separateX = 0;
+          let separateY = 0;
+          for (const other of nearby(survivorGrid, survivor.x, survivor.y, 34)) {
+            if (other === survivor || other.dead) continue;
+            const dx = survivor.x - other.x;
+            const dy = survivor.y - other.y;
+            const d = Math.hypot(dx, dy) || 1;
+            if (d < 29) {
+              const force = (29 - d) / 29;
+              separateX += dx / d * force;
+              separateY += dy / d * force;
+            }
+          }
+          desiredX += separateX * .75;
+          desiredY += separateY * .75;
+          const desiredLength = Math.hypot(desiredX, desiredY) || 1;
+          desiredX /= desiredLength;
+          desiredY /= desiredLength;
+        }
+
+        const baseSpeed = survivor.state === "flee" ? 142 : ATTITUDE[survivor.attitude].speed;
+        const targetVX = shouldMove ? desiredX * baseSpeed : 0;
+        const targetVY = shouldMove ? desiredY * baseSpeed : 0;
+        const smoothing = 1 - Math.exp(-dt * (shouldMove ? 8 : 11));
+        survivor.__vx += (targetVX - survivor.__vx) * smoothing;
+        survivor.__vy += (targetVY - survivor.__vy) * smoothing;
+        const oldX = survivor.x;
+        const oldY = survivor.y;
+        this.moveCircle?.(survivor, survivor.__vx * dt, survivor.__vy * dt, true);
+        const moved = Math.hypot(survivor.x - oldX, survivor.y - oldY);
+        const expected = Math.hypot(survivor.__vx, survivor.__vy) * dt;
+
+        if (shouldMove && expected > .3 && moved < expected * .18) survivor.__stuck += dt;
+        else survivor.__stuck = Math.max(0, survivor.__stuck - dt * 2);
+        if (survivor.__stuck > .34) {
+          const nearDoor = this.nearestDoor?.(survivor, 44, true);
+          if (nearDoor) {
+            nearDoor.door.open = true;
+            this.emitNoise?.(nearDoor.x, nearDoor.y, nearDoor.door.style === "steel" ? 105 : 52, "door");
+          } else {
+            const turn = hash(`${survivor.id}:${Math.floor(survivor.animTime || 0)}:unstick`) > .5 ? 1 : -1;
+            const oldVX = survivor.__vx;
+            survivor.__vx = -survivor.__vy * turn;
+            survivor.__vy = oldVX * turn;
+            survivor.targetX = survivor.x + survivor.__vx * 1.4;
+            survivor.targetY = survivor.y + survivor.__vy * 1.4;
+          }
+          survivor.__stuck = 0;
+        }
+
+        const blendTarget = moved > .04 ? 1 : 0;
+        survivor.moveBlend += (blendTarget - survivor.moveBlend) * Math.min(1, dt * 10);
+        survivor.animTime += dt * (1.8 + survivor.moveBlend * (survivor.state === "flee" ? 8.2 : 6.2));
+      }
+    };
+
+    const originalAimVector = typeof game.aimVector === "function" ? game.aimVector.bind(game) : null;
+    if (originalAimVector) {
+      game.aimVector = function upgradedAimVector() {
+        const pointerFine = this.input?.pointer?.active && typeof matchMedia === "function" && !matchMedia("(pointer: coarse)").matches;
+        if (pointerFine) return originalAimVector();
+        let nearest = null;
+        let best = 560;
+        for (const zombie of this.zombies || []) {
+          if (zombie.dead || (this.isHiddenInside?.(zombie))) continue;
+          const d = distance(zombie, this.player);
+          if (d < best) { best = d; nearest = zombie; }
+        }
+        for (const survivor of this.survivors || []) {
+          if (survivor.dead || !(survivor.attitude === "aggressive" || survivor.provoked)) continue;
+          const d = distance(survivor, this.player);
+          if (d < best && (!this.hasVision || this.hasVision(this.player, survivor))) { best = d; nearest = survivor; }
+        }
+        if (!nearest) return originalAimVector();
+        const dx = nearest.x - this.player.x;
+        const dy = nearest.y - this.player.y;
+        const length = Math.hypot(dx, dy) || 1;
+        return { x: dx / length, y: dy / length };
+      };
+    }
+
+    const originalAttack = typeof game.attack === "function" ? game.attack.bind(game) : null;
+    if (originalAttack && originalDamageSurvivor) {
+      game.attack = function playerAttackWithHostiles(...args) {
+        const player = this.player;
+        const oldAnim = player.attackAnim || 0;
+        const oldCooldown = player.attackCooldown || 0;
+        originalAttack(...args);
+        if (oldCooldown > 0 || (player.attackAnim || 0) <= oldAnim) return;
+        const weapon = weaponFor(player.equipped || "fists");
+        const aimX = player.facingX || 1;
+        const aimY = player.facingY || 0;
+        let target = null;
+        let best = weapon.range + 20;
+        for (const survivor of this.survivors || []) {
+          if (survivor.dead || !(survivor.attitude === "aggressive" || survivor.provoked)) continue;
+          const dx = survivor.x - player.x;
+          const dy = survivor.y - player.y;
+          const d = Math.hypot(dx, dy) || 1;
+          if (d > best) continue;
+          const dot = dx / d * aimX + dy / d * aimY;
+          const threshold = weapon.mode === "ranged" ? .975 : .18;
+          if (dot < threshold || (this.hasVision && !this.hasVision(player, survivor))) continue;
+          target = survivor;
+          best = d;
+        }
+        if (!target) return;
+        if (weapon.mode === "ranged") {
+          for (const zombie of this.zombies || []) {
+            if (zombie.dead) continue;
+            const dx = zombie.x - player.x;
+            const dy = zombie.y - player.y;
+            const d = Math.hypot(dx, dy) || 1;
+            const dot = dx / d * aimX + dy / d * aimY;
+            if (dot > .975 && d < best) return; // the zombie caught the bullet first
+          }
+        }
+        originalDamageSurvivor(target, weapon.damage * (weapon.mode === "ranged" ? .9 : 1), null);
+        if (!target.dead) {
+          target.provoked = true;
+          target.hostile = true;
+          target.state = "hostile";
+          target.__targetKind = "player";
+          target.__decision = 0;
+        }
+      };
+    }
+
+    game.drawPlayer = function upgradedPlayerModel(ctx, shakeX = 0, shakeY = 0) {
+      if (!this.player) return;
+      const screen = this.worldToScreen(this.player.x, this.player.y, shakeX, shakeY);
+      drawTacticalHuman(ctx, this.player, screen, {
+        palette: PALETTES.player,
+        fx: this.player.facingX ?? 1,
+        fy: this.player.facingY ?? 0,
+        crouching: this.player.crouching,
+        sprinting: this.player.sprintingNow,
+        weaponId: this.player.equipped || "fists",
+        attackDuration: this.player.attackDuration || .3,
+        attitude: "player"
+      });
+    };
+
+    game.drawSurvivors = function upgradedSurvivorModels(ctx, shakeX = 0, shakeY = 0) {
+      upgradeAll();
+      for (const survivor of this.survivors || []) {
+        if (this.isHiddenInside?.(survivor)) continue;
+        const screen = this.worldToScreen(survivor.x, survivor.y, shakeX, shakeY);
+        if (screen.x < -90 || screen.y < -90 || screen.x > this.viewWidth + 90 || screen.y > this.viewHeight + 90) continue;
+        const fx = Math.cos(survivor.angle || 0);
+        const fy = Math.sin(survivor.angle || 0);
+        drawTacticalHuman(ctx, survivor, screen, {
+          palette: PALETTES[survivor.attitude] || PALETTES.neutral,
+          fx, fy,
+          crouching: false,
+          sprinting: survivor.state === "flee",
+          weaponId: survivor.weapon || "knife",
+          attackDuration: weaponFor(survivor.weapon).mode === "ranged" ? .24 : .38,
+          attitude: survivor.attitude
+        });
+
+        if (survivor.dead) continue;
+        const playerDistance = distance(survivor, this.player);
+        if (playerDistance > (survivor.attitude === "aggressive" ? 620 : 285)) continue;
+        const profile = ATTITUDE[survivor.attitude] || ATTITUDE.neutral;
+        const title = `${survivor.name} • ${profile.label}`;
+        ctx.save();
+        ctx.font = "900 9px system-ui, sans-serif";
+        ctx.textAlign = "center";
+        ctx.textBaseline = "middle";
+        const width = clamp(ctx.measureText(title).width + 17, 68, 148);
+        ctx.fillStyle = "rgba(7,10,9,.88)";
+        ctx.fillRect(Math.round(screen.x - width / 2), Math.round(screen.y - 60), Math.round(width), 15);
+        ctx.fillStyle = profile.color;
+        ctx.fillRect(Math.round(screen.x - width / 2), Math.round(screen.y - 60), 3, 15);
+        ctx.fillText(title, Math.round(screen.x), Math.round(screen.y - 52.5));
+        if (survivor.speech && survivor.speechTimer > 2.4) {
+          const speechWidth = clamp(survivor.speech.length * 5.5 + 16, 74, 170);
+          ctx.fillStyle = "rgba(229,226,210,.94)";
+          ctx.fillRect(Math.round(screen.x - speechWidth / 2), Math.round(screen.y - 82), Math.round(speechWidth), 17);
+          ctx.fillStyle = "#18201c"; ctx.font = "800 9px system-ui, sans-serif";
+          ctx.fillText(survivor.speech, Math.round(screen.x), Math.round(screen.y - 73.5));
+        }
+        ctx.restore();
+      }
+    };
+
+    const originalStartNew = typeof game.startNew === "function" ? game.startNew.bind(game) : null;
+    if (originalStartNew) {
+      game.startNew = function patchedNpcStart(...args) {
+        const result = originalStartNew(...args);
+        upgradeAll();
+        this.toast?.("Survivors now have Passive, Neutral, and Hostile attitudes.", "danger");
+        return result;
+      };
+    }
+
+    const originalLoadSaved = typeof game.loadSaved === "function" ? game.loadSaved.bind(game) : null;
+    if (originalLoadSaved) {
+      game.loadSaved = function patchedNpcLoad(...args) {
+        const result = originalLoadSaved(...args);
+        upgradeAll();
+        return result;
+      };
+    }
+
+    game.toast?.("NPC smoothing and tactical character upgrade installed.");
+  }
+
+  if (window.__walkers) install(window.__walkers);
+  else window.addEventListener("load", () => install(window.__walkers), { once: true });
 })();
+
 
