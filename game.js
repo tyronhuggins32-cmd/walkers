@@ -7935,4 +7935,826 @@
     if (window.__walkers) install(window.__walkers);
     else window.addEventListener("load", () => install(window.__walkers), { once: true });
   })();
+})();/*
+ * WALKERS — Fluid Zombies, Inventory & HUD add-on
+ * Version 1.0.0
+ *
+ * INSTALL:
+ * Paste this entire file at the VERY BOTTOM of game.js, after all existing code.
+ * No HTML or CSS changes are required.
+ *
+ * WHAT IT CHANGES:
+ * - Shrinks zombie artwork to 76% without moving zombies or changing combat range.
+ * - Smooths zombie position, turning, gait speed and movement blending.
+ * - Reduces all stamina costs (sprinting and attacks) by exactly 50%.
+ * - Adds an upgraded, filterable inventory interface using the game's real items.
+ * - Rebuilds the HUD with clearer vitals, condition and equipped-item readouts.
+ */
+
+(() => {
+  "use strict";
+
+  const ADDON_VERSION = "1.0.0";
+  const ZOMBIE_VISUAL_SCALE = 0.76;
+  const INSTALL_FLAG = "__hcFluidZombieHudInventoryV1";
+
+  const WEAPON_IDS = new Set([
+    "knife", "hammer", "bat", "axe", "machete", "katana", "crowbar",
+    "spear", "sledgehammer", "pistol", "revolver", "machine_pistol",
+    "smg", "shotgun", "double_barrel", "rifle", "carbine",
+    "assault_rifle", "lever_rifle"
+  ]);
+
+  const SUPPLY_IDS = new Set([
+    "canned_beans", "crackers", "jerky", "water", "soda", "bandage",
+    "painkillers", "disinfectant", "ammo_9mm", "ammo_45", "shell",
+    "rifle_round"
+  ]);
+
+  const MATERIAL_IDS = new Set(["rag", "plank", "nails", "scrap"]);
+
+  const state = {
+    filter: "all",
+    zombieMotion: new WeakMap()
+  };
+
+  const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
+  const byId = (id) => typeof document === "undefined" ? null : document.getElementById(id);
+
+  function readableId(id) {
+    if (!id) return "BARE HANDS";
+    return String(id).replaceAll("_", " ").toUpperCase();
+  }
+
+  function itemCategory(id) {
+    if (WEAPON_IDS.has(id)) return "weapons";
+    if (SUPPLY_IDS.has(id)) return "supplies";
+    if (MATERIAL_IDS.has(id)) return "materials";
+    return "gear";
+  }
+
+  function totalItems(game) {
+    return (game.player?.inventory || []).reduce((sum, entry) => {
+      return sum + Math.max(0, Number(entry.qty) || 0);
+    }, 0);
+  }
+
+  function injectStyles() {
+    if (typeof document === "undefined" || byId("hcFluidHudStyles")) return;
+
+    const style = document.createElement("style");
+    style.id = "hcFluidHudStyles";
+    style.textContent = `
+      /* HUD shell */
+      #game .hud-top {
+        height: 76px;
+        padding: 0 18px;
+        border-bottom: 1px solid rgba(179, 199, 170, .12);
+        background:
+          linear-gradient(90deg, rgba(142, 165, 126, .07), transparent 35%, rgba(142, 165, 126, .035)),
+          linear-gradient(180deg, rgba(4, 8, 6, .97), rgba(5, 9, 7, .76) 76%, transparent);
+      }
+      #game .day-readout strong {
+        color: #f0f2e9;
+        font-size: 21px;
+        font-variant-numeric: tabular-nums;
+        text-shadow: 0 2px 12px #000;
+      }
+      #game .day-readout span,
+      #game .location-readout > span { color: #b2c39b; }
+      #game .hud-actions { gap: 8px; }
+      #game .hud-actions button {
+        min-height: 39px;
+        padding: 0 12px;
+        border: 1px solid rgba(181, 201, 172, .2);
+        border-radius: 7px;
+        background: linear-gradient(180deg, rgba(31, 43, 35, .88), rgba(12, 18, 14, .9));
+        box-shadow: inset 0 1px rgba(255, 255, 255, .035), 0 5px 16px rgba(0, 0, 0, .24);
+      }
+      #game .hud-actions button:active { transform: translateY(1px); }
+      #inventoryBtn { position: relative; }
+      #inventoryBtn .hc-inventory-badge {
+        position: absolute;
+        top: -7px;
+        right: -7px;
+        min-width: 18px;
+        height: 18px;
+        display: grid;
+        place-items: center;
+        padding: 0 4px;
+        color: #11160f;
+        border: 2px solid #0a0f0c;
+        border-radius: 12px;
+        background: #b8ca91;
+        font: 900 8px/1 system-ui, sans-serif;
+        letter-spacing: 0;
+        pointer-events: none;
+      }
+
+      /* Vitals */
+      #game .vitals {
+        top: 91px;
+        width: 220px;
+        gap: 9px;
+        padding: 15px;
+        border: 1px solid rgba(187, 207, 178, .18);
+        border-radius: 13px;
+        background:
+          linear-gradient(145deg, rgba(25, 35, 28, .91), rgba(6, 10, 8, .91));
+        box-shadow: 0 14px 36px rgba(0, 0, 0, .34), inset 0 1px rgba(255, 255, 255, .035);
+        backdrop-filter: blur(8px);
+      }
+      #game .vital {
+        grid-template-columns: 59px 1fr 28px;
+        gap: 8px;
+      }
+      #game .vital span,
+      #game .vital b { font-size: 8px; }
+      #game .vital span { color: #b8c0b8; }
+      #game .vital > div {
+        height: 7px;
+        overflow: hidden;
+        border: 1px solid rgba(255, 255, 255, .05);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, .38);
+        box-shadow: inset 0 1px 2px rgba(0, 0, 0, .6);
+      }
+      #game .vital i {
+        border-radius: inherit;
+        box-shadow: 0 0 10px currentColor;
+        transition: width .12s linear;
+      }
+      #game .vital.health i { background: linear-gradient(90deg, #8d302f, #d65d56); }
+      #game .vital.stamina i { background: linear-gradient(90deg, #a47a36, #e2c575); }
+      #game .vital.hunger i { background: linear-gradient(90deg, #60794e, #9eb47a); }
+      #game .vital.thirst i { background: linear-gradient(90deg, #47747d, #7eb5bd); }
+      #game .vital.infection i { background: linear-gradient(90deg, #713f67, #b56f9f); }
+      .hc-hud-state {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 7px;
+        margin-top: 3px;
+        padding-top: 10px;
+        border-top: 1px solid rgba(188, 207, 179, .12);
+      }
+      .hc-hud-state > div {
+        min-width: 0;
+        padding: 7px 8px;
+        border: 1px solid rgba(188, 207, 179, .1);
+        border-radius: 6px;
+        background: rgba(0, 0, 0, .2);
+      }
+      .hc-hud-state span {
+        display: block;
+        margin-bottom: 4px;
+        color: #69776d;
+        font: 900 6px/1 system-ui, sans-serif;
+        letter-spacing: .15em;
+      }
+      .hc-hud-state b {
+        display: block;
+        overflow: hidden;
+        color: #d8dfd3;
+        font: 900 8px/1.2 system-ui, sans-serif;
+        letter-spacing: .06em;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .hc-hud-state.is-warning #hcCondition { color: #e2c575; }
+      .hc-hud-state.is-danger #hcCondition { color: #eb746d; }
+
+      /* Hotbar */
+      #game .hotbar {
+        gap: 7px;
+        padding: 7px;
+        border: 1px solid rgba(187, 207, 178, .13);
+        border-radius: 11px;
+        background: rgba(5, 9, 7, .63);
+        box-shadow: 0 12px 30px rgba(0, 0, 0, .34);
+        backdrop-filter: blur(7px);
+      }
+      #game .hot-slot {
+        border-radius: 7px;
+        background: linear-gradient(145deg, rgba(24, 33, 27, .94), rgba(7, 11, 9, .94));
+      }
+      #game .hot-slot.selected {
+        border-color: #b7c990;
+        background: linear-gradient(145deg, rgba(54, 69, 50, .96), rgba(18, 26, 20, .96));
+        box-shadow: inset 0 0 0 1px rgba(183, 201, 144, .24), 0 0 18px rgba(148, 175, 116, .12);
+      }
+
+      /* Inventory */
+      #inventoryPanel {
+        background:
+          radial-gradient(circle at 90% 0, rgba(135, 161, 113, .1), transparent 34%),
+          linear-gradient(180deg, #111914, #090e0b 72%);
+      }
+      #inventoryPanel > header {
+        padding-bottom: 15px;
+        border-bottom: 1px solid rgba(188, 207, 179, .12);
+      }
+      #inventoryPanel > header h2 { color: #eef1e9; }
+      #hcInventoryTools {
+        display: grid;
+        gap: 9px;
+        margin: 0 0 13px;
+        padding: 11px;
+        border: 1px solid rgba(188, 207, 179, .13);
+        border-radius: 9px;
+        background: rgba(3, 7, 5, .29);
+      }
+      .hc-inventory-summary {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 10px;
+      }
+      .hc-inventory-summary span {
+        color: #708077;
+        font: 900 7px/1 system-ui, sans-serif;
+        letter-spacing: .16em;
+      }
+      .hc-inventory-summary b {
+        color: #dbe2d6;
+        font: 900 9px/1 system-ui, sans-serif;
+        letter-spacing: .07em;
+      }
+      .hc-inventory-filters {
+        display: grid;
+        grid-template-columns: repeat(5, 1fr);
+        gap: 5px;
+      }
+      .hc-inventory-filters button {
+        min-width: 0;
+        min-height: 32px;
+        padding: 5px 3px;
+        overflow: hidden;
+        color: #78867d;
+        border: 1px solid rgba(188, 207, 179, .12);
+        border-radius: 5px;
+        background: rgba(17, 24, 19, .86);
+        font: 900 7px/1 system-ui, sans-serif;
+        letter-spacing: .06em;
+        text-overflow: ellipsis;
+      }
+      .hc-inventory-filters button.active {
+        color: #f0f3eb;
+        border-color: rgba(183, 201, 144, .58);
+        background: #34412f;
+        box-shadow: inset 0 0 0 1px rgba(183, 201, 144, .15);
+      }
+      #inventoryList {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+        gap: 8px;
+      }
+      #inventoryList .item-row {
+        min-height: 76px;
+        grid-template-columns: 43px minmax(0, 1fr) auto;
+        border-radius: 8px;
+        background: linear-gradient(145deg, rgba(28, 38, 31, .62), rgba(10, 15, 12, .7));
+        transition: border-color .12s, background .12s, transform .12s;
+      }
+      #inventoryList .item-row:active { transform: scale(.985); }
+      #inventoryList .item-row.selected {
+        border-color: rgba(185, 205, 151, .62);
+        background: linear-gradient(145deg, rgba(57, 72, 52, .74), rgba(18, 26, 20, .8));
+      }
+      #inventoryList .item-icon { border-radius: 7px; }
+      .hc-filter-empty {
+        margin-top: 7px;
+        padding: 24px 12px;
+        color: #728078;
+        text-align: center;
+        border: 1px dashed rgba(188, 207, 179, .16);
+        border-radius: 8px;
+        font: 800 9px/1.4 system-ui, sans-serif;
+      }
+      #inventoryPanel.hc-show-appearance #hcInventoryTools,
+      #inventoryPanel.hc-show-appearance .hc-filter-empty { display: none !important; }
+      [hidden] { display: none !important; }
+
+      @media (max-width: 900px) {
+        #game .hud-top { height: 66px; padding: 0 10px; }
+        #game .vitals { top: 75px; left: 10px; width: 196px; padding: 12px; }
+        #game .vital { grid-template-columns: 54px 1fr 25px; }
+        #game .hud-actions button { min-height: 37px; padding: 0 9px; }
+        #game .side-panel { top: 66px; }
+      }
+
+      @media (max-width: 680px) and (orientation: portrait) {
+        #game .day-readout { gap: 7px; }
+        #game .day-readout strong { font-size: 17px; }
+        #game .day-readout small { display: none; }
+        #game .hud-actions { gap: 5px; }
+        #game .hud-actions button { min-height: 35px; padding: 0 8px; font-size: 8px; }
+        #game .vitals { width: 182px; gap: 7px; padding: 11px; border-radius: 10px; }
+        #game .vital { grid-template-columns: 50px 1fr 23px; gap: 6px; }
+        #game .vital span, #game .vital b { font-size: 7px; }
+        .hc-hud-state { gap: 5px; padding-top: 8px; }
+        .hc-hud-state > div { padding: 6px; }
+        #inventoryPanel { padding-left: 13px; padding-right: 13px; }
+        #hcInventoryTools { margin-top: 0; }
+        #inventoryList { grid-template-columns: 1fr; }
+        #inventoryList .item-row { min-height: 68px; }
+      }
+
+      @media (max-width: 390px) {
+        #game .day-readout span { display: none; }
+        #game .hud-actions button { padding-left: 7px; padding-right: 7px; }
+        #game .vitals { width: 174px; }
+        .hc-inventory-filters { grid-template-columns: repeat(3, 1fr); }
+      }
+    `;
+    document.head.append(style);
+  }
+
+  function ensureInventoryDom(game) {
+    if (typeof document === "undefined") return;
+
+    const gameScreen = byId("game");
+    const actions = gameScreen?.querySelector(".hud-actions");
+    let button = byId("inventoryBtn");
+    let createdButton = false;
+
+    if (!button && actions) {
+      button = document.createElement("button");
+      button.id = "inventoryBtn";
+      button.type = "button";
+      button.title = "Inventory (Tab or I)";
+      actions.prepend(button);
+      createdButton = true;
+    }
+
+    if (button) {
+      const key = button.querySelector("kbd") || document.createElement("kbd");
+      key.textContent = "TAB";
+      const badge = button.querySelector(".hc-inventory-badge") || document.createElement("span");
+      badge.className = "hc-inventory-badge";
+      badge.textContent = "0";
+      button.replaceChildren(document.createTextNode("INVENTORY "), key, badge);
+      if (createdButton) button.addEventListener("click", () => game.togglePanel?.("inventoryPanel"));
+    }
+
+    let panel = byId("inventoryPanel");
+    if (!panel && gameScreen) {
+      panel = document.createElement("section");
+      panel.id = "inventoryPanel";
+      panel.className = "side-panel hidden";
+      panel.setAttribute("aria-label", "Inventory");
+      panel.innerHTML = `
+        <header>
+          <div><p class="label">SURVIVOR GEAR</p><h2>Inventory</h2></div>
+          <button class="close-panel" type="button" aria-label="Close inventory">×</button>
+        </header>
+        <div class="weight"><span>CARRY WEIGHT</span><b id="weightValue">0 / 18 kg</b><div><i id="weightBar"></i></div></div>
+        <div id="inventoryList" class="item-list"></div>
+        <footer><span>Tap an item to use or equip it.</span><button id="dropItemBtn" type="button" disabled>DROP</button></footer>
+      `;
+      gameScreen.append(panel);
+      panel.querySelector(".close-panel")?.addEventListener("click", () => game.closePanel?.("inventoryPanel"));
+      byId("dropItemBtn")?.addEventListener("click", () => game.dropSelectedItem?.());
+    }
+
+    const list = byId("inventoryList");
+    if (!panel || !list || byId("hcInventoryTools")) return;
+
+    const tools = document.createElement("div");
+    tools.id = "hcInventoryTools";
+
+    const summary = document.createElement("div");
+    summary.className = "hc-inventory-summary";
+    const summaryLabel = document.createElement("span");
+    summaryLabel.textContent = "PACK CONTENTS";
+    const summaryValue = document.createElement("b");
+    summaryValue.id = "hcInventoryCount";
+    summaryValue.textContent = "0 ITEMS";
+    summary.append(summaryLabel, summaryValue);
+
+    const filters = document.createElement("div");
+    filters.className = "hc-inventory-filters";
+    filters.setAttribute("aria-label", "Inventory filters");
+
+    const filterOptions = [
+      ["all", "ALL"],
+      ["weapons", "WEAPONS"],
+      ["supplies", "SUPPLIES"],
+      ["materials", "MATERIALS"],
+      ["gear", "GEAR"]
+    ];
+
+    for (const [value, label] of filterOptions) {
+      const filterButton = document.createElement("button");
+      filterButton.type = "button";
+      filterButton.dataset.filter = value;
+      filterButton.textContent = label;
+      filterButton.classList.toggle("active", value === state.filter);
+      filterButton.addEventListener("click", () => {
+        state.filter = value;
+        applyInventoryFilter(game);
+      });
+      filters.append(filterButton);
+    }
+
+    tools.append(summary, filters);
+    list.before(tools);
+
+    const empty = document.createElement("div");
+    empty.id = "hcInventoryFilterEmpty";
+    empty.className = "hc-filter-empty";
+    empty.textContent = "No items in this category.";
+    empty.hidden = true;
+    list.after(empty);
+  }
+
+  function ensureHudDom() {
+    if (typeof document === "undefined") return;
+    const vitals = document.querySelector("#game .vitals");
+    if (!vitals || byId("hcHudState")) return;
+
+    const status = document.createElement("div");
+    status.id = "hcHudState";
+    status.className = "hc-hud-state";
+    status.innerHTML = `
+      <div><span>CONDITION</span><b id="hcCondition">STEADY</b></div>
+      <div><span>EQUIPPED</span><b id="hcEquipped">BARE HANDS</b></div>
+    `;
+    vitals.append(status);
+  }
+
+  function applyInventoryFilter(game) {
+    const list = byId("inventoryList");
+    const panel = byId("inventoryPanel");
+    if (!list || !game.player) return;
+
+    const rows = [...list.querySelectorAll(".item-row")];
+    let visible = 0;
+    rows.forEach((row, index) => {
+      const id = game.player.inventory[index]?.id;
+      const category = itemCategory(id);
+      row.dataset.itemId = id || "";
+      row.dataset.category = category;
+      const show = state.filter === "all" || state.filter === category;
+      row.hidden = !show;
+      if (show) visible += 1;
+    });
+
+    panel?.querySelectorAll(".hc-inventory-filters button").forEach((button) => {
+      button.classList.toggle("active", button.dataset.filter === state.filter);
+      button.setAttribute("aria-pressed", String(button.dataset.filter === state.filter));
+    });
+
+    const empty = byId("hcInventoryFilterEmpty");
+    if (empty) empty.hidden = !game.player.inventory.length || visible > 0;
+  }
+
+  function updateAddonHud(game) {
+    if (!game.player || typeof document === "undefined") return;
+    const player = game.player;
+    const count = totalItems(game);
+    const stackCount = player.inventory?.length || 0;
+
+    const badge = byId("inventoryBtn")?.querySelector(".hc-inventory-badge");
+    if (badge) {
+      badge.textContent = count > 99 ? "99+" : String(count);
+      badge.hidden = count <= 0;
+    }
+
+    const countLabel = byId("hcInventoryCount");
+    if (countLabel) {
+      countLabel.textContent = `${count} ITEM${count === 1 ? "" : "S"} • ${stackCount} STACK${stackCount === 1 ? "" : "S"}`;
+    }
+
+    const equipped = byId("hcEquipped");
+    if (equipped) equipped.textContent = readableId(player.equipped);
+
+    let condition = "STEADY";
+    let severity = "normal";
+    if (player.health <= 24) {
+      condition = "CRITICAL";
+      severity = "danger";
+    } else if (player.infection >= 60) {
+      condition = "INFECTED";
+      severity = "danger";
+    } else if (player.exhausted || player.stamina <= 10) {
+      condition = "EXHAUSTED";
+      severity = "danger";
+    } else if (player.health <= 48 || player.stamina <= 28) {
+      condition = player.health <= 48 ? "INJURED" : "WINDED";
+      severity = "warning";
+    } else if (player.crouching) {
+      condition = "SNEAKING";
+    } else if (player.sprintingNow) {
+      condition = "SPRINTING";
+      severity = "warning";
+    }
+
+    const conditionLabel = byId("hcCondition");
+    const status = byId("hcHudState");
+    if (conditionLabel) conditionLabel.textContent = condition;
+    if (status) {
+      status.classList.toggle("is-warning", severity === "warning");
+      status.classList.toggle("is-danger", severity === "danger");
+    }
+
+    for (const name of ["health", "stamina", "hunger", "thirst", "infection"]) {
+      const bar = byId(`${name}Bar`);
+      if (bar) {
+        bar.setAttribute("role", "progressbar");
+        bar.setAttribute("aria-valuemin", "0");
+        bar.setAttribute("aria-valuemax", "100");
+        bar.setAttribute("aria-valuenow", String(Math.round(clamp(Number(player[name]) || 0, 0, 100))));
+      }
+    }
+  }
+
+  function refreshInventory(game) {
+    updateAddonHud(game);
+    applyInventoryFilter(game);
+  }
+
+  function makeMotion(zombie) {
+    const motion = {
+      x: Number(zombie.x) || 0,
+      y: Number(zombie.y) || 0,
+      angle: Number(zombie.angle) || 0,
+      move: clamp(Number(zombie.moveBlend) || 0, 0, 1),
+      phase: Number(zombie.animTime) || 0
+    };
+    state.zombieMotion.set(zombie, motion);
+    return motion;
+  }
+
+  function smoothZombieMotion(game, dt) {
+    const safeDt = clamp(Number(dt) || 0, 0, 0.05);
+    for (const zombie of game.zombies || []) {
+      const motion = state.zombieMotion.get(zombie) || makeMotion(zombie);
+      const targetX = Number(zombie.x) || 0;
+      const targetY = Number(zombie.y) || 0;
+      const displacement = Math.hypot(targetX - motion.x, targetY - motion.y);
+
+      if (displacement > 150 || !Number.isFinite(displacement)) {
+        motion.x = targetX;
+        motion.y = targetY;
+      } else {
+        const positionBlend = 1 - Math.exp(-28 * safeDt);
+        motion.x += (targetX - motion.x) * positionBlend;
+        motion.y += (targetY - motion.y) * positionBlend;
+      }
+
+      const targetAngle = Number(zombie.angle) || 0;
+      const angleDelta = Math.atan2(
+        Math.sin(targetAngle - motion.angle),
+        Math.cos(targetAngle - motion.angle)
+      );
+      const turnSpeed = zombie.state === "chase" || zombie.state === "bash" ? 13 : 8;
+      motion.angle += angleDelta * (1 - Math.exp(-turnSpeed * safeDt));
+
+      const targetMove = clamp(Number(zombie.moveBlend) || 0, 0, 1);
+      motion.move += (targetMove - motion.move) * (1 - Math.exp(-9 * safeDt));
+
+      const gaitRate = zombie.dead
+        ? 0
+        : zombie.state === "chase" || zombie.state === "bash"
+          ? 7.2
+          : zombie.state === "investigate"
+            ? 5.1
+            : 3.7;
+      motion.phase += safeDt * (1.2 + gaitRate * motion.move);
+    }
+  }
+
+  function scaledZombieContext(context, scale) {
+    let depth = 0;
+    let waitingForOrigin = false;
+
+    return new Proxy(context, {
+      get(target, property) {
+        if (property === "save") {
+          return () => {
+            target.save();
+            depth += 1;
+            if (depth === 1) waitingForOrigin = true;
+          };
+        }
+        if (property === "restore") {
+          return () => {
+            target.restore();
+            if (depth === 1) waitingForOrigin = false;
+            depth = Math.max(0, depth - 1);
+          };
+        }
+        if (property === "translate") {
+          return (x, y) => {
+            target.translate(x, y);
+            if (depth === 1 && waitingForOrigin) {
+              target.scale(scale, scale);
+              waitingForOrigin = false;
+            }
+          };
+        }
+
+        const value = target[property];
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+      set(target, property, value) {
+        target[property] = value;
+        return true;
+      }
+    });
+  }
+
+  function installZombieSmoothing(game) {
+    const originalUpdate = typeof game.updateZombies === "function"
+      ? game.updateZombies.bind(game)
+      : null;
+
+    if (originalUpdate) {
+      game.updateZombies = function fluidZombieUpdate(dt) {
+        const result = originalUpdate(dt);
+        smoothZombieMotion(this, dt);
+        return result;
+      };
+    }
+
+    const originalDraw = typeof game.drawZombies === "function"
+      ? game.drawZombies.bind(game)
+      : null;
+
+    if (originalDraw) {
+      game.drawZombies = function smallerFluidZombieDraw(context, shakeX = 0, shakeY = 0) {
+        const snapshots = [];
+
+        for (const zombie of this.zombies || []) {
+          const motion = state.zombieMotion.get(zombie) || makeMotion(zombie);
+          snapshots.push([
+            zombie,
+            zombie.x,
+            zombie.y,
+            zombie.angle,
+            zombie.moveBlend,
+            zombie.animTime
+          ]);
+          zombie.x = motion.x;
+          zombie.y = motion.y;
+          zombie.angle = motion.angle;
+          zombie.moveBlend = motion.move;
+          zombie.animTime = motion.phase;
+        }
+
+        try {
+          return originalDraw(scaledZombieContext(context, ZOMBIE_VISUAL_SCALE), shakeX, shakeY);
+        } finally {
+          for (const snapshot of snapshots) {
+            const [zombie, x, y, angle, moveBlend, animTime] = snapshot;
+            zombie.x = x;
+            zombie.y = y;
+            zombie.angle = angle;
+            zombie.moveBlend = moveBlend;
+            zombie.animTime = animTime;
+          }
+        }
+      };
+    }
+
+    game.__hcZombieVisualScale = ZOMBIE_VISUAL_SCALE;
+  }
+
+  function installHalfStaminaDrain(game) {
+    const originalAttack = typeof game.attack === "function"
+      ? game.attack.bind(game)
+      : null;
+
+    if (originalAttack) {
+      game.attack = function halfCostAttack(...args) {
+        const before = Number(this.player?.stamina);
+        const result = originalAttack(...args);
+        const after = Number(this.player?.stamina);
+
+        if (this.player && Number.isFinite(before) && Number.isFinite(after)) {
+          const rawCost = Math.max(0, before - after);
+          if (rawCost > 0) {
+            const refund = rawCost * 0.5;
+            this.player.stamina = Math.min(100, after + refund);
+            if (this.__hcStaminaFrame) this.__hcStaminaFrame.attackCost += rawCost - refund;
+          }
+        }
+
+        return result;
+      };
+    }
+
+    const originalUpdatePlayer = typeof game.updatePlayer === "function"
+      ? game.updatePlayer.bind(game)
+      : null;
+
+    if (originalUpdatePlayer) {
+      game.updatePlayer = function halfMovementStaminaDrain(dt) {
+        if (!this.player) return originalUpdatePlayer(dt);
+
+        const before = Number(this.player.stamina);
+        const frame = { attackCost: 0 };
+        this.__hcStaminaFrame = frame;
+        let result;
+
+        try {
+          result = originalUpdatePlayer(dt);
+        } finally {
+          const after = Number(this.player?.stamina);
+          if (this.player && Number.isFinite(before) && Number.isFinite(after)) {
+            const totalLoss = Math.max(0, before - after);
+            const movementLoss = Math.max(0, totalLoss - frame.attackCost);
+            if (movementLoss > 0) {
+              this.player.stamina = Math.min(100, this.player.stamina + movementLoss * 0.5);
+            }
+          }
+          this.__hcStaminaFrame = null;
+        }
+
+        return result;
+      };
+    }
+
+    game.__hcStaminaDrainMultiplier = 0.5;
+  }
+
+  function installInventoryAndHud(game) {
+    injectStyles();
+    ensureInventoryDom(game);
+    ensureHudDom();
+
+    const originalRenderInventory = typeof game.renderInventory === "function"
+      ? game.renderInventory.bind(game)
+      : null;
+
+    if (originalRenderInventory) {
+      game.renderInventory = function upgradedInventoryRender(...args) {
+        const result = originalRenderInventory(...args);
+        refreshInventory(this);
+        return result;
+      };
+    }
+
+    const originalUpdateHud = typeof game.updateHUD === "function"
+      ? game.updateHUD.bind(game)
+      : null;
+
+    if (originalUpdateHud) {
+      game.updateHUD = function upgradedHudUpdate(...args) {
+        const result = originalUpdateHud(...args);
+        updateAddonHud(this);
+        return result;
+      };
+    }
+
+    if (!document.__hcInventoryShortcutInstalled) {
+      document.__hcInventoryShortcutInstalled = true;
+      document.addEventListener("keydown", (event) => {
+        if (event.code !== "KeyI" || event.repeat || event.ctrlKey || event.metaKey || event.altKey) return;
+        const target = event.target;
+        if (target?.matches?.("input, textarea, select, [contenteditable='true']")) return;
+        if (game.mode !== "playing") return;
+        event.preventDefault();
+        game.togglePanel?.("inventoryPanel");
+      });
+    }
+
+    refreshInventory(game);
+  }
+
+  function wrapRunSetup(game, methodName) {
+    const original = typeof game[methodName] === "function" ? game[methodName].bind(game) : null;
+    if (!original) return;
+
+    game[methodName] = function fluidAddonRunSetup(...args) {
+      const result = original(...args);
+      state.zombieMotion = new WeakMap();
+      smoothZombieMotion(this, 0);
+      ensureInventoryDom(this);
+      ensureHudDom();
+      refreshInventory(this);
+      return result;
+    };
+  }
+
+  function install(game) {
+    if (!game || game[INSTALL_FLAG]) return;
+    game[INSTALL_FLAG] = true;
+
+    installZombieSmoothing(game);
+    installHalfStaminaDrain(game);
+    installInventoryAndHud(game);
+    wrapRunSetup(game, "startNew");
+    wrapRunSetup(game, "loadSaved");
+
+    if (game.zombies?.length) smoothZombieMotion(game, 0);
+    if (game.player) refreshInventory(game);
+
+    game.__hcFluidAddonVersion = ADDON_VERSION;
+    game.toast?.("Fluid zombies, inventory and HUD upgrade installed.");
+  }
+
+  if (typeof window === "undefined") return;
+  if (window.__walkers) install(window.__walkers);
+  else window.addEventListener("load", () => install(window.__walkers), { once: true });
 })();
+
