@@ -5082,6 +5082,325 @@ flashlight: false
       }
       if (this.blood.length > 260) this.blood.splice(0, this.blood.length - 260);
     }
+        currentUpperFloor() {
+      if (this.player?.floorLevel !== 1 || !this.player.floorBuildingId) return null;
+      const building = this.world.buildings.find((entry) => entry.id === this.player.floorBuildingId);
+      if (!building?.upperFloor) return null;
+      return { building, upper: building.upperFloor };
+    }
+
+    nearestStair(maxRange = 62) {
+      if (!this.player) return null;
+
+      if (this.player.floorLevel === 1) {
+        const current = this.currentUpperFloor();
+        if (!current) return null;
+        const stair = current.upper.stairTile;
+        const x = (stair.x + 0.5) * TILE_SIZE;
+        const y = (stair.y + 0.5) * TILE_SIZE;
+        const d = Math.hypot(this.player.x - x, this.player.y - y);
+
+        return d <= maxRange
+          ? {
+              ref: current.building,
+              source: "stairs",
+              kind: "stairs down",
+              interactionDistance: d,
+              x,
+              y
+            }
+          : null;
+      }
+
+      let closest = null;
+      let best = maxRange;
+
+      for (const building of this.world.buildings) {
+        if (!building.upperFloor || !building.stairTile) continue;
+
+        const x = (building.stairTile.x + 0.5) * TILE_SIZE;
+        const y = (building.stairTile.y + 0.5) * TILE_SIZE;
+        const d = Math.hypot(this.player.x - x, this.player.y - y);
+
+        if (d >= best) continue;
+
+        best = d;
+        closest = {
+          ref: building,
+          source: "stairs",
+          kind: "stairs up",
+          interactionDistance: d,
+          x,
+          y
+        };
+      }
+
+      return closest;
+    }
+
+    useStairs(building) {
+      if (!building?.upperFloor || !building.stairTile) return;
+
+      const goingUp = this.player.floorLevel !== 1;
+      const stair = building.upperFloor.stairTile;
+      const side = stair.side || "north";
+      const direction = {
+        north: { x: 0, y: 1 },
+        south: { x: 0, y: -1 },
+        east: { x: -1, y: 0 },
+        west: { x: 1, y: 0 }
+      }[side];
+
+      this.player.floorLevel = goingUp ? 1 : 0;
+      this.player.floorBuildingId = goingUp ? building.id : null;
+      this.player.x = (stair.x + 0.5) * TILE_SIZE + direction.x * 18;
+      this.player.y = (stair.y + 0.5) * TILE_SIZE + direction.y * 18;
+      this.player.velocityX = 0;
+      this.player.velocityY = 0;
+      this.player.knockbackTime = 0;
+
+      this.closeAllPanels();
+      this.camera.shake = Math.max(this.camera.shake, 2.5);
+      this.updateInteractPrompt();
+      this.updateLocation();
+
+      this.toast(
+        goingUp
+          ? `Entered second floor: ${building.upperFloor.name}.`
+          : "Returned to the ground floor."
+      );
+    }
+
+    upperFloorCircleBlocked(x, y, radius) {
+      const current = this.currentUpperFloor();
+      if (!current) return true;
+
+      const { upper } = current;
+      const minX = Math.floor((x - radius) / TILE_SIZE);
+      const maxX = Math.floor((x + radius) / TILE_SIZE);
+      const minY = Math.floor((y - radius) / TILE_SIZE);
+      const maxY = Math.floor((y + radius) / TILE_SIZE);
+
+      for (let ty = minY; ty <= maxY; ty += 1) {
+        for (let tx = minX; tx <= maxX; tx += 1) {
+          const key = `${tx},${ty}`;
+          if (upper.floorSet.has(key) && !upper.walls.has(key)) continue;
+
+          const left = tx * TILE_SIZE;
+          const top = ty * TILE_SIZE;
+          const nearestX = clamp(x, left, left + TILE_SIZE);
+          const nearestY = clamp(y, top, top + TILE_SIZE);
+
+          if ((x - nearestX) ** 2 + (y - nearestY) ** 2 < radius ** 2) return true;
+        }
+      }
+
+      return false;
+    }
+
+    drawStaircaseSprite(ctx, p, side = "north", goingDown = false) {
+      const angle =
+        side === "east"
+          ? Math.PI / 2
+          : side === "south"
+            ? Math.PI
+            : side === "west"
+              ? -Math.PI / 2
+              : 0;
+
+      ctx.save();
+      ctx.translate(p.x + TILE_SIZE / 2, p.y + TILE_SIZE / 2);
+      ctx.rotate(angle);
+
+      ctx.fillStyle = "rgba(8,10,9,.62)";
+      roundedRectPath(ctx, -14, -15, 28, 30, 3);
+      ctx.fill();
+
+      ctx.fillStyle = goingDown ? "#151a18" : "#4c4033";
+      roundedRectPath(ctx, -12, -13, 24, 26, 2);
+      ctx.fill();
+
+      for (let step = 0; step < 7; step += 1) {
+        const y = -11 + step * 3.4;
+        const fade = goingDown ? 0.42 + step * 0.07 : 0.95 - step * 0.06;
+
+        ctx.fillStyle = `rgba(176,148,104,${fade})`;
+        ctx.fillRect(-10, y, 20, 2.5);
+        ctx.fillStyle = `rgba(239,218,180,${Math.max(0.08, fade * 0.22)})`;
+        ctx.fillRect(-9, y, 18, 1);
+      }
+
+      ctx.strokeStyle = "#252c29";
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(-13, -12);
+      ctx.lineTo(-13, 13);
+      ctx.moveTo(13, -12);
+      ctx.lineTo(13, 13);
+      ctx.stroke();
+
+      ctx.strokeStyle = "#9b835f";
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      ctx.moveTo(-13, -11);
+      ctx.lineTo(-13, 11);
+      ctx.moveTo(13, -11);
+      ctx.lineTo(13, 11);
+      ctx.stroke();
+
+      ctx.fillStyle = "#e3c96d";
+      ctx.beginPath();
+
+      if (goingDown) {
+        ctx.moveTo(0, 9);
+        ctx.lineTo(-5, 3);
+        ctx.lineTo(-2, 3);
+        ctx.lineTo(-2, -5);
+        ctx.lineTo(2, -5);
+        ctx.lineTo(2, 3);
+        ctx.lineTo(5, 3);
+      } else {
+        ctx.moveTo(0, -9);
+        ctx.lineTo(-5, -3);
+        ctx.lineTo(-2, -3);
+        ctx.lineTo(-2, 5);
+        ctx.lineTo(2, 5);
+        ctx.lineTo(2, -3);
+        ctx.lineTo(5, -3);
+      }
+
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+    }
+
+    drawUpperFloorLayer(ctx, shakeX, shakeY) {
+      const current = this.currentUpperFloor();
+      if (!current) return;
+
+      const { building, upper } = current;
+      const halfWidth = this.viewWidth / (2 * CAMERA_ZOOM) + 80;
+      const halfHeight = this.viewHeight / (2 * CAMERA_ZOOM) + 80;
+
+      ctx.fillStyle = "rgba(7,10,8,.78)";
+      ctx.fillRect(
+        this.camera.x - halfWidth,
+        this.camera.y - halfHeight,
+        halfWidth * 2,
+        halfHeight * 2
+      );
+
+      for (const cell of building.cells || []) {
+        const key = `${cell.x},${cell.y}`;
+        const p = this.worldToScreen(
+          cell.x * TILE_SIZE,
+          cell.y * TILE_SIZE,
+          shakeX,
+          shakeY
+        );
+        const variation = hash2D(
+          cell.x,
+          cell.y,
+          `${this.world.seed}:SECOND-FLOOR`
+        );
+        const wall = upper.walls.has(key);
+
+        ctx.fillStyle = "rgba(2,4,3,.42)";
+        ctx.fillRect(p.x + 4, p.y + 7, TILE_SIZE, TILE_SIZE);
+
+        if (wall) {
+          ctx.fillStyle = variation > 0.5 ? "#6d665b" : "#655e54";
+          ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
+          ctx.fillStyle = "rgba(241,231,207,.15)";
+          ctx.fillRect(p.x, p.y, TILE_SIZE, 4);
+          ctx.fillStyle = "rgba(26,25,22,.35)";
+          ctx.fillRect(p.x, p.y + 25, TILE_SIZE, 7);
+          ctx.strokeStyle = "rgba(38,34,29,.34)";
+          ctx.beginPath();
+          ctx.moveTo(p.x, p.y + 11);
+          ctx.lineTo(p.x + TILE_SIZE, p.y + 11);
+          ctx.moveTo(p.x, p.y + 19);
+          ctx.lineTo(p.x + TILE_SIZE, p.y + 19);
+          ctx.stroke();
+
+          if (variation > 0.82) {
+            ctx.fillStyle = "rgba(72,91,66,.34)";
+            ctx.beginPath();
+            ctx.arc(p.x + 7, p.y + 22, 5, 0, Math.PI * 2);
+            ctx.fill();
+          }
+        } else {
+          ctx.fillStyle = variation > 0.55 ? "#776b57" : "#716550";
+          ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
+          ctx.strokeStyle = "rgba(46,35,26,.35)";
+          ctx.lineWidth = 1;
+
+          for (let row = 7; row < TILE_SIZE; row += 7) {
+            ctx.beginPath();
+            ctx.moveTo(p.x, p.y + row);
+            ctx.lineTo(p.x + TILE_SIZE, p.y + row);
+            ctx.stroke();
+          }
+
+          const seam = variation > 0.5 ? 10 : 21;
+          ctx.fillStyle = "rgba(42,31,23,.25)";
+          ctx.fillRect(p.x + seam, p.y, 1, 7);
+          ctx.fillRect(p.x + (32 - seam), p.y + 7, 1, 7);
+          ctx.fillRect(p.x + seam, p.y + 14, 1, 7);
+          ctx.fillStyle = "rgba(244,226,190,.06)";
+          ctx.fillRect(p.x + 2, p.y + 2, TILE_SIZE - 4, 1);
+        }
+      }
+
+      const stair = upper.stairTile;
+      const stairP = this.worldToScreen(
+        stair.x * TILE_SIZE,
+        stair.y * TILE_SIZE,
+        shakeX,
+        shakeY
+      );
+      this.drawStaircaseSprite(ctx, stairP, stair.side, true);
+
+      for (const prop of upper.decor || []) {
+        const p = this.worldToScreen(prop.x, prop.y, shakeX, shakeY);
+        if (
+          p.x < -70 ||
+          p.y < -70 ||
+          p.x > this.viewWidth + 70 ||
+          p.y > this.viewHeight + 70
+        ) {
+          continue;
+        }
+
+        ctx.save();
+        ctx.translate(p.x, p.y);
+        ctx.rotate(prop.rotation || 0);
+        ctx.scale(prop.scale || 1, prop.scale || 1);
+
+        if (!drawDetailedInteriorProp(ctx, prop)) {
+          drawInteriorProp(ctx, prop);
+        }
+
+        ctx.restore();
+      }
+
+      const labelX = (building.x + building.w / 2) * TILE_SIZE;
+      const labelY = building.y * TILE_SIZE - 12;
+      const labelP = this.worldToScreen(labelX, labelY, shakeX, shakeY);
+
+      ctx.fillStyle = "rgba(7,10,8,.86)";
+      roundedRectPath(ctx, labelP.x - 55, labelP.y - 8, 110, 17, 5);
+      ctx.fill();
+      ctx.fillStyle = "#dfd7bd";
+      ctx.font = "800 8px system-ui, sans-serif";
+      ctx.textAlign = "center";
+      ctx.textBaseline = "middle";
+      ctx.fillText(
+        `2F • ${upper.name.toUpperCase()}`,
+        labelP.x,
+        labelP.y + 0.5
+      );
+    }
     nearestSearchable(maxRange = 104) {
       let closest = null;
       let best = maxRange;
@@ -5628,7 +5947,51 @@ flashlight: false
       }
       $("#infectionVital").classList.toggle("hidden", player.infection <= 0.1);
     }
-    updateInteractPrompt() {
+        updateInteractPrompt() {
+      const stair = this.nearestStair();
+      this.nearestInteractable =
+        stair ||
+        (this.player.floorLevel === 1
+          ? null
+          : this.nearestWorldInteractable());
+
+      const prompt = $("#interactPrompt");
+      const touchButton = document.querySelector('[data-action="interact"]');
+
+      if (
+        !this.nearestInteractable ||
+        this.panelOpen ||
+        this.mode !== "playing"
+      ) {
+        prompt.classList.add("hidden");
+        touchButton.textContent = "SEARCH";
+        touchButton.classList.remove("ready");
+        return;
+      }
+
+      prompt.classList.remove("hidden");
+
+      let action;
+
+      if (this.nearestInteractable.source === "stairs") {
+        action = this.player.floorLevel === 1 ? "GO DOWN" : "GO UP";
+      } else if (this.nearestInteractable.source === "door") {
+        action = this.nearestInteractable.ref.open ? "CLOSE" : "OPEN";
+      } else {
+        action = this.nearestInteractable.ref.searched ? "OPEN" : "LOOT";
+      }
+
+      prompt.querySelector("span").textContent =
+        `${action} ${String(
+          this.nearestInteractable.kind || "container"
+        )
+          .replaceAll("_", " ")
+          .toUpperCase()}`;
+
+      touchButton.textContent = action;
+      touchButton.classList.add("ready");
+    }
+  {
       this.nearestInteractable = this.nearestWorldInteractable();
       const prompt = $("#interactPrompt");
       const touchButton = document.querySelector('[data-action="interact"]');
