@@ -5580,7 +5580,6 @@ flashlight: false
   this.renderLoot();
   this.openPanel("lootPanel");
 }
-    }
     renderLoot() {
       const list = $("#lootList");
       list.replaceChildren();
