@@ -1226,18 +1226,58 @@
   variant
 );
 
+const interiorVariant = designBuildingInterior(
+  world,
+  building,
+  rect,
+  type,
+  rng,
+  variant
+);
+
 if (floorCount === 2) {
   const exteriorDoorKeys = new Set(
     building.doors
       .filter((door) => door.exterior)
       .map((door) => `${door.x},${door.y}`)
   );
-      if (stairCandidates.length) {
-        const picked = rng.pick(stairCandidates);
-        building.stairTile = { x: picked.x, y: picked.y, side: rng.pick(["north", "south", "east", "west"]) };
-      }
+
+  const stairCandidates = building.cells.filter((cell) => {
+    if (
+      getTile(world, cell.x, cell.y) !== TILE.FLOOR ||
+      exteriorDoorKeys.has(`${cell.x},${cell.y}`)
+    ) {
+      return false;
     }
-    const exteriorWalls = Object.values(boundaryBySide).flat().filter((cell) => getTile(world, cell.x, cell.y) === TILE.WALL);
+
+    if (
+      cell.x <= rect.x + 1 ||
+      cell.x >= rect.x + rect.w - 2 ||
+      cell.y <= rect.y + 1 ||
+      cell.y >= rect.y + rect.h - 2
+    ) {
+      return false;
+    }
+
+    return building.doors.every(
+      (door) =>
+        Math.abs(door.x - cell.x) +
+          Math.abs(door.y - cell.y) >=
+        3
+    );
+  });
+
+  if (stairCandidates.length) {
+    const picked = rng.pick(stairCandidates);
+
+    building.stairTile = {
+      x: picked.x,
+      y: picked.y,
+      side: rng.pick(["north", "south", "east", "west"])
+    };
+  }
+}
+const exteriorWalls = Object.values(boundaryBySide)
     const desiredWindows = type === "prison" ? 4 : type === "hospital" ? 10 : type === "grocery" ? 8 : Math.max(3, Math.floor((rect.w + rect.h) / 4));
     const windowPool = rng.shuffle(exteriorWalls.filter((cell) => !building.signTile || cell.x !== building.signTile.x || cell.y !== building.signTile.y));
     for (const cell of windowPool.slice(0, Math.min(desiredWindows, windowPool.length))) {
