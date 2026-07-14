@@ -1257,7 +1257,7 @@ if (floorCount === 2) {
     const areaTier = Math.max(0, Math.min(4, Math.floor(building.cells.length / 220)));
     const countRange = type === "hospital" ? [9 + areaTier, 13 + areaTier * 2] : type === "grocery" ? [8 + areaTier, 12 + areaTier * 2] : type === "prison" ? [9 + areaTier, 14 + areaTier * 2] : type === "sheriff" ? [7 + areaTier, 11 + areaTier * 2] : type === "warehouse" ? [6 + areaTier, 10 + areaTier * 2] : floorCount === 2 ? [5 + areaTier, 8 + areaTier * 2] : [4 + areaTier, 7 + areaTier * 2];
     const containerCount = Math.min(furniturePool.length, rng.int(countRange[0], countRange[1]));
-    const kinds = furnishKinds(type);
+    const kinds = furnishKinds(type, interiorVariant);
     const placed = [];
     for (let i = 0; i < containerCount; i += 1) {
       const cellIndex = furniturePool.findIndex((cell2) => placed.every((other) => Math.hypot(cell2.x - other.x, cell2.y - other.y) >= 1.8));
