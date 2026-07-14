@@ -1722,6 +1722,7 @@ function furnishBuildingInterior(world, building, rng) {
 }
 
 function drawInteriorProp(ctx, prop) {
+  if (drawDetailedInteriorProp(ctx, prop)) return;
   const kind = prop.kind;
   const variant = prop.variant || 0;
   const wood = ["#6c523d", "#765a42", "#5e4939", "#7d6147"][variant % 4];
@@ -2141,6 +2142,483 @@ function drawInteriorProp(ctx, prop) {
 
     building.decor.sort((a, b) => a.layer - b.layer);
   }
+  function buildSecondFloorLayer(world, building) {
+  if (building.type !== "house" || building.floorCount < 2 || !building.stairTile) {
+    building.upperFloor = null;
+    return;
+  }
+
+  const footprint = new Set((building.cells || []).map((cell) => `${cell.x},${cell.y}`));
+  const walls = new Set();
+  const stair = { ...building.stairTile };
+  const plan = (building.interiorVariant || 0) % 5;
+
+  const inFootprint = (x, y) => footprint.has(`${x},${y}`);
+  const addWall = (x, y) => {
+    if (inFootprint(x, y)) walls.add(`${x},${y}`);
+  };
+  const removeWall = (x, y) => walls.delete(`${x},${y}`);
+
+  for (const cell of building.cells || []) {
+    const outer = [[1, 0], [-1, 0], [0, 1], [0, -1]]
+      .some(([dx, dy]) => !inFootprint(cell.x + dx, cell.y + dy));
+    if (outer) addWall(cell.x, cell.y);
+  }
+
+  const left = building.x + 1;
+  const right = building.x + building.w - 2;
+  const top = building.y + 1;
+  const bottom = building.y + building.h - 2;
+  const centerX = Math.floor((left + right) / 2);
+  const centerY = Math.floor((top + bottom) / 2);
+
+  const V = (x, y1, y2, gaps = []) => {
+    for (let y = y1; y <= y2; y += 1) {
+      if (!gaps.includes(y)) addWall(x, y);
+    }
+  };
+
+  const H = (y, x1, x2, gaps = []) => {
+    for (let x = x1; x <= x2; x += 1) {
+      if (!gaps.includes(x)) addWall(x, y);
+    }
+  };
+
+  if (building.w >= 8 && building.h >= 8) {
+    if (plan === 0) {
+      V(centerX, top, bottom, [top + 2, bottom - 2]);
+      H(centerY, left, centerX - 1, [left + 2]);
+      H(centerY + 1, centerX + 1, right, [right - 2]);
+    } else if (plan === 1) {
+      H(centerY, left, right, [centerX]);
+      V(left + Math.max(2, Math.floor((right - left) * 0.34)), top, centerY - 1, [top + 2]);
+      V(right - Math.max(2, Math.floor((right - left) * 0.28)), centerY + 1, bottom, [bottom - 2]);
+    } else if (plan === 2) {
+      V(centerX, top, bottom, [centerY]);
+      H(top + Math.max(2, Math.floor((bottom - top) * 0.35)), left, right, [left + 2, right - 2]);
+      H(bottom - Math.max(2, Math.floor((bottom - top) * 0.25)), left, right, [centerX]);
+    } else if (plan === 3) {
+      H(centerY, left, right, [left + 2, right - 2]);
+      V(centerX - 1, top, centerY - 1, [top + 2]);
+      V(centerX + 2, centerY + 1, bottom, [bottom - 2]);
+    } else {
+      V(left + Math.max(2, Math.floor((right - left) * 0.36)), top, bottom, [centerY]);
+      V(right - Math.max(2, Math.floor((right - left) * 0.28)), top, bottom, [centerY + 1]);
+      H(centerY, left, right, [left + 2, centerX, right - 2]);
+    }
+  } else if (building.w >= 7) {
+    V(centerX, top, bottom, [centerY]);
+  } else if (building.h >= 7) {
+    H(centerY, left, right, [centerX]);
+  }
+
+  for (let dy = -1; dy <= 1; dy += 1) {
+    for (let dx = -1; dx <= 1; dx += 1) {
+      if (Math.abs(dx) + Math.abs(dy) <= 1) removeWall(stair.x + dx, stair.y + dy);
+    }
+  }
+
+  const floorCells = (building.cells || []).filter((cell) => !walls.has(`${cell.x},${cell.y}`));
+  const floorSet = new Set(floorCells.map((cell) => `${cell.x},${cell.y}`));
+  const decor = [];
+
+  const nearestOpenCell = (targetX, targetY, maxRadius = 4) => {
+    let best = null;
+    let bestDistance = Infinity;
+
+    for (const cell of floorCells) {
+      const d = Math.hypot(cell.x - targetX, cell.y - targetY);
+      if (d > maxRadius || d >= bestDistance) continue;
+      if (Math.abs(cell.x - stair.x) + Math.abs(cell.y - stair.y) < 2) continue;
+
+      best = cell;
+      bestDistance = d;
+    }
+
+    return best;
+  };
+
+  const px = (ratio) => Math.round(left + (right - left) * ratio);
+  const py = (ratio) => Math.round(top + (bottom - top) * ratio);
+
+  const place = (kind, x, y, rotation = 0, scale = 0.82, layer = 0, variant = 0) => {
+    const cell = nearestOpenCell(x, y);
+    if (!cell) return;
+
+    decor.push({
+      id: `${building.id}-2f-${decor.length}`,
+      buildingId: building.id,
+      floorLevel: 1,
+      kind,
+      x: (cell.x + 0.5) * world.tileSize,
+      y: (cell.y + 0.5) * world.tileSize,
+      rotation,
+      scale,
+      layer,
+      variant: (variant + plan + decor.length) % 4
+    });
+  };
+
+  const horizontal = 0;
+  const vertical = Math.PI / 2;
+
+  if (plan === 0) {
+    place("rug", px(0.23), py(0.25), horizontal, 0.78, -1);
+    place("double_bed", px(0.24), py(0.19), horizontal, 0.88);
+    place("wardrobe", px(0.08), py(0.36), vertical, 0.82);
+    place("wall_art", px(0.39), py(0.12), horizontal, 0.72);
+    place("single_bed", px(0.77), py(0.18), horizontal, 0.82);
+    place("bookcase", px(0.91), py(0.34), vertical, 0.8);
+    place("desk_visual", px(0.76), py(0.47), horizontal, 0.8);
+    place("office_chair", px(0.72), py(0.57), horizontal, 0.72);
+    place("toilet", px(0.68), py(0.82), horizontal, 0.74);
+    place("sink_cabinet", px(0.88), py(0.78), vertical, 0.76);
+    place("bathtub", px(0.82), py(0.93), horizontal, 0.74);
+    place("plant", px(0.15), py(0.83), horizontal, 0.72);
+  } else if (plan === 1) {
+    place("rug", px(0.5), py(0.56), horizontal, 0.9, -1);
+    place("sofa", px(0.5), py(0.31), horizontal, 0.82);
+    place("coffee_table", px(0.5), py(0.5), horizontal, 0.78);
+    place("floor_lamp", px(0.82), py(0.32), horizontal, 0.7);
+    place("double_bed", px(0.25), py(0.18), horizontal, 0.86);
+    place("wardrobe", px(0.08), py(0.32), vertical, 0.8);
+    place("bookcase", px(0.91), py(0.32), vertical, 0.8);
+    place("desk_visual", px(0.79), py(0.72), horizontal, 0.8);
+    place("office_chair", px(0.72), py(0.8), horizontal, 0.7);
+    place("toilet", px(0.18), py(0.82), horizontal, 0.72);
+    place("sink_cabinet", px(0.36), py(0.84), horizontal, 0.74);
+  } else if (plan === 2) {
+    place("single_bed", px(0.18), py(0.18), horizontal, 0.82);
+    place("single_bed", px(0.18), py(0.7), horizontal, 0.82);
+    place("double_bed", px(0.75), py(0.18), horizontal, 0.86);
+    place("wardrobe", px(0.91), py(0.38), vertical, 0.8);
+    place("bookcase", px(0.08), py(0.46), vertical, 0.78);
+    place("rug", px(0.5), py(0.53), horizontal, 0.82, -1);
+    place("desk_visual", px(0.72), py(0.7), horizontal, 0.8);
+    place("office_chair", px(0.67), py(0.8), horizontal, 0.7);
+    place("toilet", px(0.43), py(0.83), horizontal, 0.72);
+    place("sink_cabinet", px(0.57), py(0.83), horizontal, 0.72);
+    place("plant", px(0.88), py(0.88), horizontal, 0.7);
+  } else if (plan === 3) {
+    place("rug", px(0.5), py(0.28), horizontal, 0.88, -1);
+    place("double_bed", px(0.5), py(0.16), horizontal, 0.92);
+    place("nightstand", px(0.26), py(0.18), horizontal, 0.72);
+    place("wardrobe", px(0.89), py(0.32), vertical, 0.84);
+    place("armchair", px(0.18), py(0.57), horizontal, 0.74);
+    place("floor_lamp", px(0.1), py(0.48), horizontal, 0.68);
+    place("bookcase", px(0.09), py(0.76), vertical, 0.78);
+    place("bathtub", px(0.76), py(0.8), horizontal, 0.78);
+    place("toilet", px(0.55), py(0.82), horizontal, 0.72);
+    place("sink_cabinet", px(0.91), py(0.78), vertical, 0.72);
+    place("wall_art", px(0.5), py(0.42), horizontal, 0.72);
+  } else {
+    place("single_bed", px(0.18), py(0.18), horizontal, 0.8);
+    place("single_bed", px(0.18), py(0.7), horizontal, 0.8);
+    place("single_bed", px(0.79), py(0.18), horizontal, 0.8);
+    place("storage_box", px(0.09), py(0.45), vertical, 0.7);
+    place("storage_box", px(0.91), py(0.45), vertical, 0.7);
+    place("bookcase", px(0.5), py(0.16), horizontal, 0.8);
+    place("rug", px(0.5), py(0.55), horizontal, 0.86, -1);
+    place("desk_visual", px(0.75), py(0.72), horizontal, 0.78);
+    place("office_chair", px(0.7), py(0.82), horizontal, 0.68);
+    place("toilet", px(0.46), py(0.84), horizontal, 0.7);
+    place("sink_cabinet", px(0.59), py(0.84), horizontal, 0.7);
+    place("plant", px(0.88), py(0.88), horizontal, 0.68);
+  }
+
+  building.upperFloor = {
+    plan,
+    name: [
+      "Family Bedrooms",
+      "Loft and Study",
+      "Three-Bedroom Floor",
+      "Master Suite",
+      "Children's Floor"
+    ][plan],
+    floorCells,
+    floorSet,
+    walls,
+    stairTile: stair,
+    decor: decor.sort((a, b) => a.layer - b.layer)
+  };
+}
+
+function drawDetailedInteriorProp(ctx, prop) {
+  const kind = prop.kind;
+  const variant = prop.variant || 0;
+  const wood = ["#9b6b43", "#815a3c", "#a47449", "#75513a"][variant % 4];
+  const woodDark = ["#4a3428", "#3e2e24", "#50382a", "#382a22"][variant % 4];
+  const fabric = ["#8ab8b4", "#a88b82", "#879b84", "#8d829d"][variant % 4];
+  const fabricDark = ["#4f7773", "#735c57", "#5d705b", "#62596d"][variant % 4];
+  const metal = ["#9aa5a2", "#7f8b88", "#aab0ac", "#727d79"][variant % 4];
+
+  const shadow = (w, h, y = 4) => {
+    ctx.fillStyle = "rgba(12,14,13,.35)";
+    ctx.beginPath();
+    ctx.ellipse(3, y, w / 2, h / 2, 0, 0, Math.PI * 2);
+    ctx.fill();
+  };
+
+  const outlineRect = (x, y, w, h, r = 2, fill = wood) => {
+    ctx.fillStyle = "#252826";
+    roundedRectPath(ctx, x - 1, y - 1, w + 2, h + 2, r + 1);
+    ctx.fill();
+    ctx.fillStyle = fill;
+    roundedRectPath(ctx, x, y, w, h, r);
+    ctx.fill();
+  };
+
+  if (kind === "rug") {
+    outlineRect(-19, -12, 38, 24, 3, fabricDark);
+    ctx.fillStyle = fabric;
+    roundedRectPath(ctx, -17, -10, 34, 20, 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(245,232,198,.18)";
+    ctx.fillRect(-12, -7, 24, 3);
+    ctx.fillRect(-12, 4, 24, 2);
+    ctx.fillStyle = "rgba(50,48,43,.3)";
+    roundedRectPath(ctx, -9, -5, 18, 10, 2);
+    ctx.fill();
+    return true;
+  }
+
+  if (kind === "sofa") {
+    shadow(36, 16);
+    outlineRect(-19, -10, 38, 20, 4, fabricDark);
+    ctx.fillStyle = fabric;
+    roundedRectPath(ctx, -16, -7, 32, 14, 3);
+    ctx.fill();
+    ctx.strokeStyle = "#3d4744";
+    ctx.lineWidth = 1;
+    ctx.strokeRect(-12.5, -4.5, 11, 9);
+    ctx.strokeRect(1.5, -4.5, 11, 9);
+    ctx.fillStyle = woodDark;
+    ctx.fillRect(-21, -7, 4, 15);
+    ctx.fillRect(17, -7, 4, 15);
+    ctx.fillStyle = "rgba(245,235,210,.18)";
+    ctx.fillRect(-14, -6, 28, 2);
+    return true;
+  }
+
+  if (kind === "armchair" || kind === "dining_chair" || kind === "office_chair") {
+    const office = kind === "office_chair";
+    shadow(16, 11);
+    outlineRect(-8, -9, 16, 17, 3, office ? "#4e5a57" : fabricDark);
+    ctx.fillStyle = office ? "#697571" : fabric;
+    roundedRectPath(ctx, -6, -7, 12, 12, 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(242,231,204,.15)";
+    ctx.fillRect(-4, -6, 8, 2);
+    ctx.strokeStyle = office ? metal : woodDark;
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(-5, 6);
+    ctx.lineTo(-6, 12);
+    ctx.moveTo(5, 6);
+    ctx.lineTo(6, 12);
+    if (office) {
+      ctx.moveTo(0, 6);
+      ctx.lineTo(0, 13);
+      ctx.moveTo(-7, 13);
+      ctx.lineTo(7, 13);
+    }
+    ctx.stroke();
+    return true;
+  }
+
+  if (["coffee_table", "nightstand", "dining_table", "desk_visual"].includes(kind)) {
+    const w = kind === "dining_table" ? 30 : kind === "desk_visual" ? 28 : kind === "coffee_table" ? 24 : 16;
+    const h = kind === "dining_table" ? 17 : kind === "desk_visual" ? 15 : kind === "coffee_table" ? 12 : 15;
+    shadow(w, h * 0.7);
+    outlineRect(-w / 2, -h / 2, w, h, 2, wood);
+    ctx.fillStyle = "rgba(244,222,183,.2)";
+    ctx.fillRect(-w / 2 + 2, -h / 2 + 2, w - 4, 3);
+    ctx.fillStyle = woodDark;
+    ctx.fillRect(-w / 2 + 3, h / 2 - 3, 3, 6);
+    ctx.fillRect(w / 2 - 6, h / 2 - 3, 3, 6);
+
+    if (kind === "desk_visual") {
+      ctx.fillStyle = "#d4c7a8";
+      ctx.save();
+      ctx.rotate(-0.08);
+      ctx.fillRect(-8, -4, 12, 7);
+      ctx.restore();
+      ctx.fillStyle = "#3b4441";
+      ctx.fillRect(6, -4, 5, 6);
+    }
+    return true;
+  }
+
+  if (kind === "double_bed" || kind === "single_bed" || kind === "bed") {
+    const doubleBed = kind === "double_bed";
+    const w = doubleBed ? 38 : 30;
+    const h = doubleBed ? 23 : 19;
+    shadow(w, h * 0.7);
+    outlineRect(-w / 2, -h / 2, w, h, 3, woodDark);
+    ctx.fillStyle = "#d5d4c7";
+    roundedRectPath(ctx, -w / 2 + 2, -h / 2 + 2, w - 4, h - 4, 3);
+    ctx.fill();
+    ctx.fillStyle = "#f0ead8";
+    roundedRectPath(ctx, -w / 2 + 4, -h / 2 + 4, doubleBed ? 12 : 9, 7, 2);
+    ctx.fill();
+
+    if (doubleBed) {
+      roundedRectPath(ctx, w / 2 - 16, -h / 2 + 4, 12, 7, 2);
+      ctx.fill();
+    }
+
+    ctx.fillStyle = fabric;
+    ctx.fillRect(-w / 2 + 3, 2, w - 6, h / 2 - 5);
+    ctx.fillStyle = fabricDark;
+    ctx.fillRect(-w / 2 + 3, h / 2 - 6, w - 6, 3);
+    return true;
+  }
+
+  if (kind === "wardrobe" || kind === "bookcase") {
+    shadow(25, 12);
+    outlineRect(-12, -9, 24, 18, 2, kind === "wardrobe" ? wood : woodDark);
+
+    if (kind === "wardrobe") {
+      ctx.strokeStyle = woodDark;
+      ctx.strokeRect(-9.5, -6.5, 8, 13);
+      ctx.strokeRect(1.5, -6.5, 8, 13);
+      ctx.fillStyle = "#d5b56f";
+      ctx.fillRect(-3, 0, 2, 3);
+      ctx.fillRect(2, 0, 2, 3);
+      ctx.fillStyle = "rgba(246,226,189,.16)";
+      ctx.fillRect(-9, -6, 18, 2);
+    } else {
+      ctx.fillStyle = "#2d302c";
+      ctx.fillRect(-9, -4, 18, 2);
+      ctx.fillRect(-9, 3, 18, 2);
+      ["#8f5d4e", "#65805f", "#c0a35e", "#60788b", "#986e7c"].forEach((color, i) => {
+        ctx.fillStyle = color;
+        ctx.fillRect(-8 + i * 4, -7 + (i % 2) * 8, 3, 6);
+      });
+    }
+    return true;
+  }
+
+  if (kind === "stove") {
+    shadow(19, 13);
+    outlineRect(-10, -9, 20, 18, 2, "#c7cbc6");
+    ctx.fillStyle = "#303735";
+    ctx.fillRect(-8, -7, 16, 5);
+    for (const [x, y] of [[-4, -4], [4, -4], [-4, 3], [4, 3]]) {
+      ctx.beginPath();
+      ctx.arc(x, y, 2.4, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "#5d6662";
+    ctx.fillRect(-7, 6, 14, 2);
+    return true;
+  }
+
+  if (kind === "sink" || kind === "sink_cabinet") {
+    const w = kind === "sink_cabinet" ? 24 : 19;
+    shadow(w, 12);
+    outlineRect(-w / 2, -8, w, 16, 2, "#b6c0ba");
+    ctx.fillStyle = "#47524e";
+    roundedRectPath(ctx, -7, -5, 14, 9, 3);
+    ctx.fill();
+    ctx.strokeStyle = "#e0e4df";
+    ctx.lineWidth = 1.5;
+    ctx.beginPath();
+    ctx.arc(0, -5, 5, Math.PI, Math.PI * 2);
+    ctx.stroke();
+    ctx.fillStyle = "#5e6b66";
+    ctx.fillRect(-w / 2 + 2, 5, w - 4, 2);
+    return true;
+  }
+
+  if (kind === "toilet") {
+    shadow(17, 11);
+    outlineRect(-7, -10, 14, 9, 2, "#d9ddd2");
+    ctx.fillStyle = "#e9ede2";
+    ctx.beginPath();
+    ctx.ellipse(0, 5, 9, 8, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "#5f6964";
+    ctx.beginPath();
+    ctx.ellipse(0, 5, 4.5, 3.5, 0, 0, Math.PI * 2);
+    ctx.fill();
+    return true;
+  }
+
+  if (kind === "bathtub") {
+    shadow(31, 13);
+    outlineRect(-16, -8, 32, 16, 6, "#d4d8ce");
+    ctx.fillStyle = "#5e6d68";
+    roundedRectPath(ctx, -12, -5, 24, 10, 5);
+    ctx.fill();
+    ctx.fillStyle = "rgba(150,210,207,.35)";
+    roundedRectPath(ctx, -10, -3, 20, 6, 3);
+    ctx.fill();
+    ctx.fillStyle = "#b6bbb4";
+    ctx.fillRect(10, -7, 3, 5);
+    return true;
+  }
+
+  if (kind === "floor_lamp") {
+    ctx.strokeStyle = "#4b463e";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(0, -8);
+    ctx.lineTo(0, 10);
+    ctx.moveTo(-6, 10);
+    ctx.lineTo(6, 10);
+    ctx.stroke();
+    ctx.fillStyle = "#f0d56c";
+    ctx.beginPath();
+    ctx.arc(0, -11, 6, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.fillStyle = "rgba(255,225,116,.22)";
+    ctx.beginPath();
+    ctx.arc(0, -11, 10, 0, Math.PI * 2);
+    ctx.fill();
+    return true;
+  }
+
+  if (kind === "plant") {
+    outlineRect(-7, 3, 14, 10, 3, "#9a744c");
+    ctx.fillStyle = "#3f7b46";
+    for (const [x, y, r] of [[0, -5, 6], [-5, -1, 5], [5, -2, 5], [0, -10, 4]]) {
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.fillStyle = "rgba(202,226,150,.24)";
+    ctx.beginPath();
+    ctx.arc(-2, -9, 2.5, 0, Math.PI * 2);
+    ctx.fill();
+    return true;
+  }
+
+  if (kind === "wall_art") {
+    outlineRect(-12, -8, 24, 16, 2, woodDark);
+    ctx.fillStyle = "#d6cdb8";
+    ctx.fillRect(-9, -5, 18, 10);
+    ctx.fillStyle = "#54806b";
+    ctx.fillRect(-7, 0, 14, 4);
+    ctx.fillStyle = "#d2ad5e";
+    ctx.beginPath();
+    ctx.arc(4, -2, 3, 0, Math.PI * 2);
+    ctx.fill();
+    return true;
+  }
+
+  if (kind === "storage_box") {
+    shadow(19, 10);
+    outlineRect(-10, -7, 20, 14, 2, "#9b7650");
+    ctx.strokeStyle = "#5a422f";
+    ctx.strokeRect(-7.5, -4.5, 15, 9);
+    ctx.fillStyle = "rgba(246,222,180,.16)";
+    ctx.fillRect(-7, -4, 14, 2);
+    return true;
+  }
+
+  return false;
+}
   function addBuilding(world, rng, rect, type) {
     const id = world.activeChunkKey ? `${world.activeChunkKey}-b${world.activeChunkBuildingIndex++}` : `b${world.buildings.length}`;
     const variants = BUILDING_VARIANTS[type] || ["standard"];
@@ -2274,6 +2752,7 @@ function drawInteriorProp(ctx, prop) {
       building.windows.push({ x: cell.x, y: cell.y, barred: type === "prison" });
     }
     furnishBuildingInterior(world, building, rng);
+buildSecondFloorLayer(world, building);
 delete building.cellSet;
 world.buildings.push(building);
     return building;
@@ -3583,7 +4062,9 @@ var FURNITURE_SIZES = Object.freeze({
         hurtAnim: 0,
         kills: 0,
         distanceWalked: 0,
-        flashlight: false
+floorLevel: 0,
+floorBuildingId: null,
+flashlight: false
       };
     }
     makeZombie(spawn) {
