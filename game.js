@@ -5165,17 +5165,19 @@ zombie.memory =
       return { x: this.player.facingX, y: this.player.facingY };
     }
     attack() {
-      const player = this.player;
-      if (player.floorLevel === 1) {
-  if (player.attackCooldown > 0) return;
+  const player = this.player;
 
-  player.attackCooldown = 0.22;
-  player.attackDuration = 0.18;
-  player.attackAnim = 0.18;
+  if (player.floorLevel === 1) {
+    if (player.attackCooldown > 0) return;
 
-  return;
-  
-      if (player.attackCooldown > 0 || player.stamina <= 1) return;
+    player.attackCooldown = 0.22;
+    player.attackDuration = 0.18;
+    player.attackAnim = 0.18;
+
+    return;
+  }
+
+  if (player.attackCooldown > 0 || player.stamina <= 1) return;
       const weapon = ITEMS[player.equipped] ?? FISTS;
       const aim = this.aimVector();
       player.actionAnim = 0;
