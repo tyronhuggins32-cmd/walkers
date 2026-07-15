@@ -6157,7 +6157,7 @@ zombie.memory =
 
       const targetPopulation = Math.min(
         280,
-        Math.floor((85 + this.day * 9) * 1.2 * survivalGrowth)
+        Math.floor((85 + this.day * 9) * 1.45 * survivalGrowth)
       );
 
       const living = this.zombies.filter(
