@@ -5876,48 +5876,7 @@ zombie.memory =
     Math.round(origin.y)
   );
 }
-      this.drawStaircaseSprite(ctx, stairP, stair.side, true);
-
-      for (const prop of upper.decor || []) {
-        const p = this.worldToScreen(prop.x, prop.y, shakeX, shakeY);
-        if (
-          p.x < -70 ||
-          p.y < -70 ||
-          p.x > this.viewWidth + 70 ||
-          p.y > this.viewHeight + 70
-        ) {
-          continue;
-        }
-
-        ctx.save();
-        ctx.translate(p.x, p.y);
-        ctx.rotate(prop.rotation || 0);
-        ctx.scale(prop.scale || 1, prop.scale || 1);
-
-        if (!drawDetailedInteriorProp(ctx, prop)) {
-          drawInteriorProp(ctx, prop);
-        }
-
-        ctx.restore();
-      }
-
-      const labelX = (building.x + building.w / 2) * TILE_SIZE;
-      const labelY = building.y * TILE_SIZE - 12;
-      const labelP = this.worldToScreen(labelX, labelY, shakeX, shakeY);
-
-      ctx.fillStyle = "rgba(7,10,8,.86)";
-      roundedRectPath(ctx, labelP.x - 55, labelP.y - 8, 110, 17, 5);
-      ctx.fill();
-      ctx.fillStyle = "#dfd7bd";
-      ctx.font = "800 8px system-ui, sans-serif";
-      ctx.textAlign = "center";
-      ctx.textBaseline = "middle";
-      ctx.fillText(
-        `2F • ${upper.name.toUpperCase()}`,
-        labelP.x,
-        labelP.y + 0.5
-      );
-    }
+      
     nearestSearchable(maxRange = 104) {
       let closest = null;
       let best = maxRange;
