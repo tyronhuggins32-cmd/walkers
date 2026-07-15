@@ -4228,8 +4228,9 @@ flashlight: false
       this.updateCamera(dt);
       this.uiTimer -= dt;
       this.mapTimer -= dt;
-      this.saveTimer += dt;
+        this.saveTimer += dt;
       this.spawnTimer -= dt;
+      this.hordeTimer = (this.hordeTimer ?? 105) - dt;
       this.ambientTimer -= dt;
       if (this.uiTimer <= 0) {
         this.uiTimer = 0.12;
@@ -4245,9 +4246,27 @@ flashlight: false
         this.saveTimer = 0;
         this.saveGame();
       }
-      if (this.spawnTimer <= 0) {
-        this.spawnTimer = 35;
+         if (this.spawnTimer <= 0) {
+        const daySpeedup = Math.min(
+          0.38,
+          Math.max(0, this.day - 1) * 0.025
+        );
+
+        // 35 / 1.2 = 20% faster than the original spawn cycle.
+        this.spawnTimer = 35 / 1.2 * (1 - daySpeedup);
         this.spawnNightWanderers();
+      }
+
+      if (this.day >= 5 && this.hordeTimer <= 0) {
+        this.spawnHorde();
+
+        const dayReduction = Math.min(
+          50,
+          Math.max(0, this.day - 5) * 6
+        );
+
+        this.hordeTimer =
+          145 - dayReduction + Math.random() * 45;
       }
       if (this.ambientTimer <= 0) this.triggerAmbientEvent();
       if (this.player.health <= 0 || this.player.infection >= 100) this.die();
@@ -6063,22 +6082,91 @@ flashlight: false
       this.renderRecipes();
       this.updateHotbar();
     }
-    spawnNightWanderers() {
-      const targetPopulation = 85 + this.day * 9;
-      const living = this.zombies.filter((zombie) => !zombie.dead).length;
+     spawnNightWanderers() {
+      const survivalGrowth =
+        1 + Math.min(1.15, Math.max(0, this.day - 1) * 0.085);
+
+      const targetPopulation = Math.min(
+        280,
+        Math.floor((85 + this.day * 9) * 1.2 * survivalGrowth)
+      );
+
+      const living = this.zombies.filter(
+        (zombie) => !zombie.dead
+      ).length;
+
       if (living >= targetPopulation) return;
+
       const night = this.nightStrength();
-      const count = 1 + Math.floor(night * 3) + Math.min(2, this.day - 1);
+      const dayBonus = Math.floor(
+        Math.max(0, this.day - 1) / 2
+      );
+
+      const count = Math.min(
+        10,
+        1 +
+          Math.floor(night * 3) +
+          Math.min(2, this.day - 1) +
+          dayBonus
+      );
+
       let spawned = 0;
+
       for (let i = 0; i < count; i += 1) {
-        const angle = Math.random() * Math.PI * 2;
-        const radius = 650 + Math.random() * 340;
-        const x = clamp(this.player.x + Math.cos(angle) * radius, 40, this.world.width * TILE_SIZE - 40);
-        const y = clamp(this.player.y + Math.sin(angle) * radius, 40, this.world.height * TILE_SIZE - 40);
-        if (isSolidTile(getTile(this.world, Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE)))) continue;
-        const chunkKey = `${Math.floor(x / TILE_SIZE / CHUNK_SIZE)},${Math.floor(y / TILE_SIZE / CHUNK_SIZE)}`;
+        let spawnPoint = null;
+
+        for (let attempt = 0; attempt < 8; attempt += 1) {
+          const angle = Math.random() * Math.PI * 2;
+          const radius = 650 + Math.random() * 340;
+
+          const x = clamp(
+            this.player.x + Math.cos(angle) * radius,
+            40,
+            this.world.width * TILE_SIZE - 40
+          );
+
+          const y = clamp(
+            this.player.y + Math.sin(angle) * radius,
+            40,
+            this.world.height * TILE_SIZE - 40
+          );
+
+          if (
+            !isSolidTile(
+              getTile(
+                this.world,
+                Math.floor(x / TILE_SIZE),
+                Math.floor(y / TILE_SIZE)
+              )
+            )
+          ) {
+            spawnPoint = { x, y };
+            break;
+          }
+        }
+
+        if (!spawnPoint) continue;
+
+        const { x, y } = spawnPoint;
+        const chunkKey = `${Math.floor(
+          x / TILE_SIZE / CHUNK_SIZE
+        )},${Math.floor(y / TILE_SIZE / CHUNK_SIZE)}`;
+
         const roll = Math.random();
-        const archetype = roll < 0.58 ? "normal" : roll < 0.72 ? "runner" : roll < 0.83 ? "crawler" : roll < 0.92 ? "bloater" : roll < 0.98 ? "brute" : "howler";
+
+        const archetype =
+          roll < 0.58
+            ? "normal"
+            : roll < 0.72
+              ? "runner"
+              : roll < 0.83
+                ? "crawler"
+                : roll < 0.92
+                  ? "bloater"
+                  : roll < 0.98
+                    ? "brute"
+                    : "howler";
+
         const stats = {
           normal: [38, 60],
           runner: [58, 46],
@@ -6087,45 +6175,232 @@ flashlight: false
           brute: [32, 175],
           howler: [40, 66]
         }[archetype];
-        this.zombies.push(this.makeZombie({
-          id: `h${Date.now()}-${i}`,
+
+        this.zombies.push(
+          this.makeZombie({
+            id: `h${Date.now()}-${i}-${Math.random()
+              .toString(36)
+              .slice(2, 7)}`,
+            chunkKey,
+            x,
+            y,
+            archetype,
+            packId: `wanderers-${Math.floor(
+              Date.now() / 3e4
+            )}`,
+            speed:
+              stats[0] * (0.88 + Math.random() * 0.24),
+            health:
+              stats[1] * (0.88 + Math.random() * 0.24),
+            hearing: 0.8 + Math.random() * 0.5,
+            sight: 0.8 + Math.random() * 0.4,
+            curiosity: 0.3 + Math.random() * 0.65,
+            aggression: 0.6 + Math.random() * 0.55,
+            hue: 0
+          })
+        );
+
+        spawned += 1;
+      }
+
+      this.survivorSpawnCarry += spawned * 0.3;
+
+      while (this.survivorSpawnCarry >= 1) {
+        this.survivorSpawnCarry -= 1;
+
+        const angle = Math.random() * Math.PI * 2;
+        const radius = 520 + Math.random() * 260;
+
+        const x = clamp(
+          this.player.x + Math.cos(angle) * radius,
+          40,
+          this.world.width * TILE_SIZE - 40
+        );
+
+        const y = clamp(
+          this.player.y + Math.sin(angle) * radius,
+          40,
+          this.world.height * TILE_SIZE - 40
+        );
+
+        if (
+          isSolidTile(
+            getTile(
+              this.world,
+              Math.floor(x / TILE_SIZE),
+              Math.floor(y / TILE_SIZE)
+            )
+          )
+        ) {
+          continue;
+        }
+
+        const chunkKey = `${Math.floor(
+          x / TILE_SIZE / CHUNK_SIZE
+        )},${Math.floor(y / TILE_SIZE / CHUNK_SIZE)}`;
+
+        const index = this.survivors.length;
+
+        this.survivors.push(
+          this.makeSurvivor({
+            id: `hs${Date.now()}-${index}`,
+            chunkKey,
+            x,
+            y,
+            name:
+              SURVIVOR_NAMES2[
+                index % SURVIVOR_NAMES2.length
+              ],
+            role:
+              Math.random() < 0.28
+                ? "guard"
+                : Math.random() < 0.35
+                  ? "medic"
+                  : "scavenger",
+            weapon:
+              Math.random() < 0.35
+                ? "pistol"
+                : Math.random() < 0.18
+                  ? "lever_rifle"
+                  : "machete",
+            courage: 0.3 + Math.random() * 0.62,
+            health: 72 + Math.random() * 28,
+            outfit: index % SURVIVOR_LOOKS.length
+          })
+        );
+      }
+    }
+    spawnHorde() {
+      const living = this.zombies.filter(
+        (zombie) => !zombie.dead
+      ).length;
+
+      const populationCap = Math.min(
+        320,
+        190 + this.day * 12
+      );
+
+      if (living >= populationCap) return;
+
+      const hordeSize = Math.min(
+        26,
+        10 + Math.max(0, this.day - 5) * 2
+      );
+
+      const hordeAngle = Math.random() * Math.PI * 2;
+      const packId = `day-${this.day}-horde-${Date.now()}`;
+      let spawned = 0;
+
+      for (let i = 0; i < hordeSize; i += 1) {
+        let spawnPoint = null;
+
+        for (let attempt = 0; attempt < 12; attempt += 1) {
+          const angle =
+            hordeAngle + (Math.random() - 0.5) * 0.72;
+          const radius = 760 + Math.random() * 260;
+          const sideOffset = (i - hordeSize / 2) * 11;
+
+          const x = clamp(
+            this.player.x +
+              Math.cos(angle) * radius +
+              Math.cos(angle + Math.PI / 2) * sideOffset,
+            40,
+            this.world.width * TILE_SIZE - 40
+          );
+
+          const y = clamp(
+            this.player.y +
+              Math.sin(angle) * radius +
+              Math.sin(angle + Math.PI / 2) * sideOffset,
+            40,
+            this.world.height * TILE_SIZE - 40
+          );
+
+          if (
+            !isSolidTile(
+              getTile(
+                this.world,
+                Math.floor(x / TILE_SIZE),
+                Math.floor(y / TILE_SIZE)
+              )
+            )
+          ) {
+            spawnPoint = { x, y };
+            break;
+          }
+        }
+
+        if (!spawnPoint) continue;
+
+        const { x, y } = spawnPoint;
+        const chunkKey = `${Math.floor(
+          x / TILE_SIZE / CHUNK_SIZE
+        )},${Math.floor(y / TILE_SIZE / CHUNK_SIZE)}`;
+
+        const roll = Math.random();
+
+        const archetype =
+          roll < 0.67
+            ? "normal"
+            : roll < 0.82
+              ? "runner"
+              : roll < 0.9
+                ? "crawler"
+                : roll < 0.96
+                  ? "bloater"
+                  : roll < 0.99
+                    ? "brute"
+                    : "howler";
+
+        const stats = {
+          normal: [38, 60],
+          runner: [58, 46],
+          crawler: [52, 40],
+          bloater: [30, 82],
+          brute: [32, 175],
+          howler: [40, 66]
+        }[archetype];
+
+        const zombie = this.makeZombie({
+          id: `day${this.day}-horde-${Date.now()}-${i}`,
           chunkKey,
           x,
           y,
           archetype,
-          packId: `horde-${Math.floor(Date.now() / 35e3)}`,
-          speed: stats[0] * (0.88 + Math.random() * 0.24),
-          health: stats[1] * (0.88 + Math.random() * 0.24),
-          hearing: 0.8 + Math.random() * 0.5,
-          sight: 0.8 + Math.random() * 0.4,
-          curiosity: 0.3 + Math.random() * 0.65,
-          aggression: 0.6 + Math.random() * 0.55,
+          packId,
+          speed:
+            stats[0] * (0.92 + Math.random() * 0.22),
+          health:
+            stats[1] * (0.94 + Math.random() * 0.2),
+          hearing: 1 + Math.random() * 0.45,
+          sight: 0.9 + Math.random() * 0.35,
+          curiosity: 0.7 + Math.random() * 0.3,
+          aggression: 0.9 + Math.random() * 0.35,
           hue: 0
-        }));
+        });
+
+        zombie.state = "investigate";
+        zombie.targetX = this.player.x;
+        zombie.targetY = this.player.y;
+        zombie.targetEntityId = "player";
+        zombie.memory = 24;
+
+        this.zombies.push(zombie);
         spawned += 1;
       }
-      this.survivorSpawnCarry += spawned * 0.3;
-      while (this.survivorSpawnCarry >= 1) {
-        this.survivorSpawnCarry -= 1;
-        const angle = Math.random() * Math.PI * 2;
-        const radius = 520 + Math.random() * 260;
-        const x = clamp(this.player.x + Math.cos(angle) * radius, 40, this.world.width * TILE_SIZE - 40);
-        const y = clamp(this.player.y + Math.sin(angle) * radius, 40, this.world.height * TILE_SIZE - 40);
-        if (isSolidTile(getTile(this.world, Math.floor(x / TILE_SIZE), Math.floor(y / TILE_SIZE)))) continue;
-        const chunkKey = `${Math.floor(x / TILE_SIZE / CHUNK_SIZE)},${Math.floor(y / TILE_SIZE / CHUNK_SIZE)}`;
-        const index = this.survivors.length;
-        this.survivors.push(this.makeSurvivor({
-          id: `hs${Date.now()}-${index}`,
-          chunkKey,
-          x,
-          y,
-          name: SURVIVOR_NAMES2[index % SURVIVOR_NAMES2.length],
-          role: Math.random() < 0.28 ? "guard" : Math.random() < 0.35 ? "medic" : "scavenger",
-          weapon: Math.random() < 0.35 ? "pistol" : Math.random() < 0.18 ? "lever_rifle" : "machete",
-          courage: 0.3 + Math.random() * 0.62,
-          health: 72 + Math.random() * 28,
-          outfit: index % SURVIVOR_LOOKS.length
-        }));
+
+      if (spawned > 0) {
+        this.emitNoise(
+          this.player.x,
+          this.player.y,
+          260,
+          "horde pressure"
+        );
+
+        this.toast(
+          `HORDE ALERT: ${spawned} walkers are moving into the district.`,
+          "danger"
+        );
       }
     }
     triggerAmbientEvent() {
