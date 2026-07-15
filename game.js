@@ -4969,30 +4969,34 @@ zombie.memory =
   includeStructures = false
 ) {
   if (
-    entity === this.player &&
-    this.player.floorLevel === 1
-  ) {
-    const current = this.currentUpperFloor();
+if (
+  entity === this.player &&
+  this.player.floorLevel === 1
+) {
+  const current = this.currentUpperFloor();
 
-    if (!current) return;
+  if (!current) return;
 
-    const bounds = current.upper.walkBounds;
-    const r = 5;
+  const bounds = current.upper.walkBounds;
 
-    entity.x = clamp(
-      entity.x + amountX,
-      bounds.left + r,
-      bounds.right - r
-    );
+  /*
+   * Direct movement with only the visible outer edge
+   * acting as a boundary.
+   */
+  entity.x = clamp(
+    entity.x + amountX,
+    bounds.left,
+    bounds.right
+  );
 
-    entity.y = clamp(
-      entity.y + amountY,
-      bounds.top + r,
-      bounds.bottom - r
-    );
+  entity.y = clamp(
+    entity.y + amountY,
+    bounds.top,
+    bounds.bottom
+  );
 
-    return;
-  }
+  return;
+}
 
   const nextX = entity.x + amountX;
 
@@ -5382,23 +5386,38 @@ zombie.memory =
 
   const upper = building.upperFloor;
 
-  upper.walkBounds = {
-    left:
-      (building.x + 1) * TILE_SIZE + 6,
+  const cells =
+  Array.isArray(building.cells) &&
+  building.cells.length
+    ? building.cells
+    : null;
 
-    top:
-      (building.y + 1) * TILE_SIZE + 6,
+const minTileX = cells
+  ? Math.min(...cells.map((cell) => cell.x))
+  : building.x;
 
-    right:
-      (building.x + building.w - 1) *
-        TILE_SIZE -
-      6,
+const maxTileX = cells
+  ? Math.max(...cells.map((cell) => cell.x))
+  : building.x + building.w - 1;
 
-    bottom:
-      (building.y + building.h - 1) *
-        TILE_SIZE -
-      6
-  };
+const minTileY = cells
+  ? Math.min(...cells.map((cell) => cell.y))
+  : building.y;
+
+const maxTileY = cells
+  ? Math.max(...cells.map((cell) => cell.y))
+  : building.y + building.h - 1;
+
+/*
+ * Only an 8-pixel outer rim blocks movement.
+ * No internal walls or invisible tile barriers.
+ */
+upper.walkBounds = {
+  left: minTileX * TILE_SIZE + 8,
+  right: (maxTileX + 1) * TILE_SIZE - 8,
+  top: minTileY * TILE_SIZE + 8,
+  bottom: (maxTileY + 1) * TILE_SIZE - 8
+};
 
   return {
     building,
@@ -5497,9 +5516,40 @@ zombie.memory =
       }[side];
 
       this.player.floorLevel = goingUp ? 1 : 0;
-      this.player.floorBuildingId = goingUp ? building.id : null;
-      this.player.x = (stair.x + 0.5) * TILE_SIZE + direction.x * 18;
-      this.player.y = (stair.y + 0.5) * TILE_SIZE + direction.y * 18;
+this.player.floorBuildingId =
+  goingUp ? building.id : null;
+
+const stairX =
+  (stair.x + 0.5) * TILE_SIZE +
+  direction.x * 18;
+
+const stairY =
+  (stair.y + 0.5) * TILE_SIZE +
+  direction.y * 18;
+
+if (goingUp) {
+  const current = this.currentUpperFloor();
+  const bounds = current?.upper?.walkBounds;
+
+  this.player.x = bounds
+    ? clamp(
+        stairX,
+        bounds.left + 12,
+        bounds.right - 12
+      )
+    : stairX;
+
+  this.player.y = bounds
+    ? clamp(
+        stairY,
+        bounds.top + 12,
+        bounds.bottom - 12
+      )
+    : stairY;
+} else {
+  this.player.x = stairX;
+  this.player.y = stairY;
+}
       this.player.velocityX = 0;
       this.player.velocityY = 0;
       this.player.knockbackTime = 0;
