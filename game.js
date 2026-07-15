@@ -4327,9 +4327,16 @@ flashlight: false
         speed = 176;
         player.stamina = Math.max(0, player.stamina - dt * 10);
         if (player.noiseCooldown <= 0) {
-          player.noiseCooldown = 0.32;
-          this.emitNoise(player.x, player.y, 195, "footsteps");
-        }
+  // Sprinting produces frequent, heavy footsteps.
+  player.noiseCooldown = 0.2;
+
+  this.emitNoise(
+    player.x,
+    player.y,
+    300,
+    "sprinting footsteps"
+  );
+}
       } else {
         const recovery = player.hunger < 15 || player.thirst < 15 ? 6 : 14;
         const exhaustedRecovery = hasInput ? 10 : 18;
@@ -4713,7 +4720,8 @@ flashlight: false
               zombie.targetX = heard.x;
               zombie.targetY = heard.y;
               zombie.targetEntityId = null;
-              zombie.memory = 6 + (zombie.curiosity || 0.5) * 5;
+zombie.memory =
+  9 + (zombie.curiosity || 0.5) * 6;
             } else if (zombie.memory <= 0) {
               zombie.state = "wander";
               zombie.targetEntityId = null;
@@ -5032,10 +5040,71 @@ flashlight: false
       return best;
     }
     emitNoise(x, y, radius, type) {
-      const gunfire = radius >= 400 || /pistol|rifle|shotgun|revolver|carbine|gun/i.test(type || "");
-      this.noises.push({ x, y, radius, type, gunfire, age: 0, life: gunfire ? 3.4 : radius > 250 ? 2.5 : 1.8 });
-      if (this.noises.length > 48) this.noises.shift();
-    }
+  const soundType = String(type || "");
+
+  const gunfire =
+    radius >= 400 ||
+    /pistol|rifle|shotgun|revolver|carbine|gun/i.test(
+      soundType
+    );
+
+  const sprinting =
+    /sprint|footsteps/i.test(soundType);
+
+  const majorSound =
+    /alarm|howler|scream|collapse|explosion|trap|glass/i.test(
+      soundType
+    );
+
+  /*
+   * Every sound now travels farther.
+   *
+   * Gunfire: +35%
+   * Sprinting: +30%
+   * Alarms and crashes: +25%
+   * Other sounds: +15%
+   */
+  const attractionMultiplier =
+    gunfire
+      ? 1.35
+      : sprinting
+        ? 1.3
+        : majorSound
+          ? 1.25
+          : 1.15;
+
+  const boostedRadius =
+    radius * attractionMultiplier;
+
+  /*
+   * Loud noises remain detectable longer.
+   */
+  const life =
+    gunfire
+      ? 4.6
+      : boostedRadius > 300
+        ? 3.3
+        : boostedRadius > 150
+          ? 2.6
+          : 2.1;
+
+  this.noises.push({
+    x,
+    y,
+    radius: boostedRadius,
+    type: soundType,
+    gunfire,
+    age: 0,
+    life
+  });
+
+  /*
+   * Preserve more simultaneous sounds.
+   */
+  if (this.noises.length > 64) {
+    this.noises.shift();
+  }
+}
     aimVector() {
       if (!matchMedia("(pointer: coarse)").matches && this.input.pointer.active) {
         const target = this.screenToWorld(this.input.pointer.x, this.input.pointer.y);
