@@ -13,7 +13,7 @@
     plank: { name: "Wood plank", icon: "WOOD", kind: "material", weight: 1.6, maxStack: 6, description: "Building material for barricades." },
     nails: { name: "Box of nails", icon: "NAIL", kind: "material", weight: 0.2, maxStack: 8, description: "A handful of salvaged nails." },
     scrap: { name: "Metal scrap", icon: "SCRP", kind: "material", weight: 0.8, maxStack: 6, description: "Bent metal with a few uses left." },
-    knife: { name: "Kitchen knife", icon: "KNF", kind: "weapon", mode: "melee", damage: 14, range: 46, cooldown: 0.4, noise: 22, staminaCost: 8, weight: 0.6, maxStack: 1, description: "Fast and quiet, but dangerously close." },
+    knife: { name: "Kitchen knife", icon: "KNF", kind: "weapon", mode: "melee", damage: 10, range: 46, cooldown: 0.4, noise: 22, staminaCost: 8, weight: 0.6, maxStack: 1, description: "Fast and quiet, but dangerously close." },
     hammer: { name: "Claw hammer", icon: "HAM", kind: "weapon", mode: "melee", damage: 20, range: 51, cooldown: 0.5, noise: 39, staminaCost: 10, weight: 0.9, maxStack: 1, description: "A compact tool with a vicious backswing." },
     bat: { name: "Baseball bat", icon: "BAT", kind: "weapon", mode: "melee", damage: 22, range: 58, cooldown: 0.62, noise: 42, staminaCost: 13, weight: 1.4, maxStack: 1, description: "Reliable blunt force." },
     axe: { name: "Fire axe", icon: "AXE", kind: "weapon", mode: "melee", damage: 36, range: 62, cooldown: 0.82, noise: 48, staminaCost: 17, weight: 2.2, maxStack: 1, description: "Heavy, exhausting, devastating." },
@@ -4218,6 +4218,43 @@ flashlight: false
       requestAnimationFrame((next) => this.frame(next));
     }
     update(dt) {
+      if (this.player?.floorLevel === 1) {
+  /*
+   * Only update systems that are needed upstairs.
+   * No zombies, survivors, world streaming,
+   * hordes, spawning, structures or pathfinding.
+   */
+  this.updatePlayer(dt);
+  this.updateSurvival(dt);
+  this.updateCamera(dt);
+
+  this.noises.length = 0;
+  this.effects.length = 0;
+  this.camera.shake = 0;
+
+  this.uiTimer -= dt;
+  this.mapTimer -= dt;
+
+  if (this.uiTimer <= 0) {
+    this.uiTimer = 0.15;
+    this.updateHUD();
+    this.updateInteractPrompt();
+  }
+
+  if (this.mapTimer <= 0) {
+    this.mapTimer = 0.7;
+    this.updateLocation();
+  }
+
+  if (
+    this.player.health <= 0 ||
+    this.player.infection >= 100
+  ) {
+    this.die();
+  }
+
+  return;
+}
       this.updatePlayer(dt);
       this.updateWorldStreaming();
       this.updateSurvival(dt);
@@ -4925,31 +4962,34 @@ zombie.memory =
       this.camera.x += (this.player.x - this.camera.x) * smoothing;
       this.camera.y += (this.player.y - this.camera.y) * smoothing;
     }
-    moveCircle(entity, amountX, amountY, includeStructures = false) {
-  if (entity === this.player && this.player.floorLevel === 1) {
-    const nextX = entity.x + amountX;
+    moveCircle(
+  entity,
+  amountX,
+  amountY,
+  includeStructures = false
+) {
+  if (
+    entity === this.player &&
+    this.player.floorLevel === 1
+  ) {
+    const current = this.currentUpperFloor();
 
-    if (
-      !this.upperFloorCircleBlocked(
-        nextX,
-        entity.y,
-        entity.radius
-      )
-    ) {
-      entity.x = nextX;
-    }
+    if (!current) return;
 
-    const nextY = entity.y + amountY;
+    const bounds = current.upper.walkBounds;
+    const r = 5;
 
-    if (
-      !this.upperFloorCircleBlocked(
-        entity.x,
-        nextY,
-        entity.radius
-      )
-    ) {
-      entity.y = nextY;
-    }
+    entity.x = clamp(
+      entity.x + amountX,
+      bounds.left + r,
+      bounds.right - r
+    );
+
+    entity.y = clamp(
+      entity.y + amountY,
+      bounds.top + r,
+      bounds.bottom - r
+    );
 
     return;
   }
@@ -4983,13 +5023,15 @@ zombie.memory =
   entity.x = clamp(
     entity.x,
     entity.radius,
-    this.world.width * TILE_SIZE - entity.radius
+    this.world.width * TILE_SIZE -
+      entity.radius
   );
 
   entity.y = clamp(
     entity.y,
     entity.radius,
-    this.world.height * TILE_SIZE - entity.radius
+    this.world.height * TILE_SIZE -
+      entity.radius
   );
 }
     circleBlocked(x, y, radius, includeStructures = true) {
@@ -5124,6 +5166,15 @@ zombie.memory =
     }
     attack() {
       const player = this.player;
+      if (player.floorLevel === 1) {
+  if (player.attackCooldown > 0) return;
+
+  player.attackCooldown = 0.22;
+  player.attackDuration = 0.18;
+  player.attackAnim = 0.18;
+
+  return;
+  
       if (player.attackCooldown > 0 || player.stamina <= 1) return;
       const weapon = ITEMS[player.equipped] ?? FISTS;
       const aim = this.aimVector();
@@ -5273,7 +5324,10 @@ zombie.memory =
       this.emitNoise(zombie.x, zombie.y, 610, "bloater rupture");
       this.effects.push({ type: "blast", x: zombie.x, y: zombie.y, life: 0.48, maxLife: 0.48, radius });
       this.camera.shake = Math.max(this.camera.shake, distance(zombie, this.player) < 420 ? 11 : 4);
-      if (distance(zombie, this.player) < radius) {
+      if (
+  this.player.floorLevel !== 1 &&
+  distance(zombie, this.player) < radius
+) {
         this.player.health = Math.max(0, this.player.health - 18);
         this.player.infection = Math.min(100, this.player.infection + 7);
         this.toast("Bloater bile burned through your clothes.", "danger");
@@ -5297,12 +5351,58 @@ zombie.memory =
       if (this.blood.length > 260) this.blood.splice(0, this.blood.length - 260);
     }
         currentUpperFloor() {
-      if (this.player?.floorLevel !== 1 || !this.player.floorBuildingId) return null;
-      const building = this.world.buildings.find((entry) => entry.id === this.player.floorBuildingId);
-      if (!building?.upperFloor) return null;
-      return { building, upper: building.upperFloor };
-    }
+  if (
+    this.player?.floorLevel !== 1 ||
+    !this.player.floorBuildingId
+  ) {
+    return null;
+  }
 
+  const id = this.player.floorBuildingId;
+  let building = this.__cachedUpperBuilding;
+
+  if (!building || building.id !== id) {
+    building =
+      this.world.buildings.find(
+        (entry) => entry.id === id
+      ) || null;
+
+    this.__cachedUpperBuilding = building;
+  }
+
+  if (!building) return null;
+
+  if (!building.upperFloor) {
+    buildSecondFloorLayer(this.world, building);
+  }
+
+  if (!building.upperFloor) return null;
+
+  const upper = building.upperFloor;
+
+  upper.walkBounds = {
+    left:
+      (building.x + 1) * TILE_SIZE + 6,
+
+    top:
+      (building.y + 1) * TILE_SIZE + 6,
+
+    right:
+      (building.x + building.w - 1) *
+        TILE_SIZE -
+      6,
+
+    bottom:
+      (building.y + building.h - 1) *
+        TILE_SIZE -
+      6
+  };
+
+  return {
+    building,
+    upper
+  };
+}
     nearestStair(maxRange = 82) {
   if (!this.player) return null;
 
@@ -5414,90 +5514,20 @@ zombie.memory =
       );
     }
 
-    upperFloorCircleBlocked(x, y, radius) {
-  let current = this.currentUpperFloor();
+    upperFloorCircleBlocked(x, y, radius = 8) {
+  const current = this.currentUpperFloor();
 
   if (!current) return true;
 
-  /*
-   * Sets do not survive normal JSON saving. Rebuild the floor
-   * if an older save contains plain objects instead of Sets.
-   */
-  if (
-    !(current.upper.floorSet instanceof Set) ||
-    !(current.upper.walls instanceof Set)
-  ) {
-    buildSecondFloorLayer(
-      this.world,
-      current.building
-    );
+  const bounds = current.upper.walkBounds;
+  const r = Math.min(radius, 5);
 
-    current = this.currentUpperFloor();
-
-    if (!current) return true;
-  }
-
-  const upper = current.upper;
-
-  /*
-   * Use a smaller upstairs collision radius.
-   * The character model stays the same size, but narrow doors
-   * and corners no longer create invisible blocking.
-   */
-  const collisionRadius = Math.min(radius, 7);
-
-  const minX = Math.floor(
-    (x - collisionRadius) / TILE_SIZE
+  return (
+    x - r < bounds.left ||
+    x + r > bounds.right ||
+    y - r < bounds.top ||
+    y + r > bounds.bottom
   );
-  const maxX = Math.floor(
-    (x + collisionRadius) / TILE_SIZE
-  );
-  const minY = Math.floor(
-    (y - collisionRadius) / TILE_SIZE
-  );
-  const maxY = Math.floor(
-    (y + collisionRadius) / TILE_SIZE
-  );
-
-  for (let ty = minY; ty <= maxY; ty += 1) {
-    for (let tx = minX; tx <= maxX; tx += 1) {
-      const key = `${tx},${ty}`;
-
-      if (
-        upper.floorSet.has(key) &&
-        !upper.walls.has(key)
-      ) {
-        continue;
-      }
-
-      const left = tx * TILE_SIZE;
-      const top = ty * TILE_SIZE;
-
-      const nearestX = clamp(
-        x,
-        left,
-        left + TILE_SIZE
-      );
-
-      const nearestY = clamp(
-        y,
-        top,
-        top + TILE_SIZE
-      );
-
-      const dx = x - nearestX;
-      const dy = y - nearestY;
-
-      if (
-        dx * dx + dy * dy <
-        collisionRadius * collisionRadius
-      ) {
-        return true;
-      }
-    }
-  }
-
-  return false;
 }
     drawStaircaseSprite(ctx, p, side = "north", goingDown = false) {
       const angle =
@@ -5575,91 +5605,277 @@ zombie.memory =
       ctx.restore();
     }
 
-    drawUpperFloorLayer(ctx, shakeX, shakeY) {
-      const current = this.currentUpperFloor();
-      if (!current) return;
+    drawUpperFloorLayer(
+  ctx,
+  shakeX = 0,
+  shakeY = 0
+) {
+  const current = this.currentUpperFloor();
 
-      const { building, upper } = current;
-      const halfWidth = this.viewWidth / (2 * CAMERA_ZOOM) + 80;
-      const halfHeight = this.viewHeight / (2 * CAMERA_ZOOM) + 80;
+  if (!current) return;
 
-      ctx.fillStyle = "rgba(7,10,8,.78)";
-      ctx.fillRect(
-        this.camera.x - halfWidth,
-        this.camera.y - halfHeight,
-        halfWidth * 2,
-        halfHeight * 2
+  const { building, upper } = current;
+
+  /*
+   * Build the upstairs picture once.
+   * Afterward the game draws one cached image
+   * instead of rebuilding every tile each frame.
+   */
+  if (!upper.__stableCanvas) {
+    const width = Math.max(
+      TILE_SIZE * 4,
+      building.w * TILE_SIZE
+    );
+
+    const height = Math.max(
+      TILE_SIZE * 4,
+      building.h * TILE_SIZE
+    );
+
+    const canvas =
+      document.createElement("canvas");
+
+    canvas.width = width;
+    canvas.height = height;
+
+    const floorCtx = canvas.getContext(
+      "2d",
+      { alpha: false }
+    );
+
+    floorCtx.imageSmoothingEnabled = false;
+
+    floorCtx.fillStyle = "#111713";
+    floorCtx.fillRect(
+      0,
+      0,
+      width,
+      height
+    );
+
+    floorCtx.fillStyle = "#746852";
+    floorCtx.fillRect(
+      TILE_SIZE,
+      TILE_SIZE,
+      width - TILE_SIZE * 2,
+      height - TILE_SIZE * 2
+    );
+
+    /*
+     * Wooden floorboards.
+     */
+    for (
+      let y = TILE_SIZE;
+      y < height - TILE_SIZE;
+      y += 8
+    ) {
+      floorCtx.strokeStyle =
+        y % 16 === 0
+          ? "rgba(42,31,23,.32)"
+          : "rgba(239,221,187,.05)";
+
+      floorCtx.beginPath();
+      floorCtx.moveTo(
+        TILE_SIZE,
+        y + 0.5
+      );
+      floorCtx.lineTo(
+        width - TILE_SIZE,
+        y + 0.5
+      );
+      floorCtx.stroke();
+    }
+
+    /*
+     * Four visible exterior walls only.
+     */
+    floorCtx.fillStyle = "#625d53";
+
+    floorCtx.fillRect(
+      0,
+      0,
+      width,
+      TILE_SIZE
+    );
+
+    floorCtx.fillRect(
+      0,
+      height - TILE_SIZE,
+      width,
+      TILE_SIZE
+    );
+
+    floorCtx.fillRect(
+      0,
+      TILE_SIZE,
+      TILE_SIZE,
+      height - TILE_SIZE * 2
+    );
+
+    floorCtx.fillRect(
+      width - TILE_SIZE,
+      TILE_SIZE,
+      TILE_SIZE,
+      height - TILE_SIZE * 2
+    );
+
+    /*
+     * Draw a small amount of furniture.
+     * Furniture is visual only and cannot block walking.
+     */
+    for (
+      const prop of
+      (upper.decor || []).slice(0, 14)
+    ) {
+      const kind = String(
+        prop.kind || "furniture"
       );
 
-      for (const cell of building.cells || []) {
-        const key = `${cell.x},${cell.y}`;
-        const p = this.worldToScreen(
-          cell.x * TILE_SIZE,
-          cell.y * TILE_SIZE,
-          shakeX,
-          shakeY
-        );
-        const variation = hash2D(
-          cell.x,
-          cell.y,
-          `${this.world.seed}:SECOND-FLOOR`
-        );
-        const wall = upper.walls.has(key);
+      let w = 22;
+      let h = 15;
+      let fill = "#916947";
 
-        ctx.fillStyle = "rgba(2,4,3,.42)";
-        ctx.fillRect(p.x + 4, p.y + 7, TILE_SIZE, TILE_SIZE);
+      if (kind.includes("bed")) {
+        w = kind.includes("double")
+          ? 38
+          : 30;
 
-        if (wall) {
-          ctx.fillStyle = variation > 0.5 ? "#6d665b" : "#655e54";
-          ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
-          ctx.fillStyle = "rgba(241,231,207,.15)";
-          ctx.fillRect(p.x, p.y, TILE_SIZE, 4);
-          ctx.fillStyle = "rgba(26,25,22,.35)";
-          ctx.fillRect(p.x, p.y + 25, TILE_SIZE, 7);
-          ctx.strokeStyle = "rgba(38,34,29,.34)";
-          ctx.beginPath();
-          ctx.moveTo(p.x, p.y + 11);
-          ctx.lineTo(p.x + TILE_SIZE, p.y + 11);
-          ctx.moveTo(p.x, p.y + 19);
-          ctx.lineTo(p.x + TILE_SIZE, p.y + 19);
-          ctx.stroke();
+        h = kind.includes("double")
+          ? 24
+          : 20;
 
-          if (variation > 0.82) {
-            ctx.fillStyle = "rgba(72,91,66,.34)";
-            ctx.beginPath();
-            ctx.arc(p.x + 7, p.y + 22, 5, 0, Math.PI * 2);
-            ctx.fill();
-          }
-        } else {
-          ctx.fillStyle = variation > 0.55 ? "#776b57" : "#716550";
-          ctx.fillRect(p.x, p.y, TILE_SIZE + 1, TILE_SIZE + 1);
-          ctx.strokeStyle = "rgba(46,35,26,.35)";
-          ctx.lineWidth = 1;
+        fill = "#d1d1c5";
+      } else if (
+        kind.includes("sofa")
+      ) {
+        w = 36;
+        h = 20;
+        fill = "#809d98";
+      } else if (
+        kind.includes("rug")
+      ) {
+        w = 36;
+        h = 24;
+        fill = "#827991";
+      } else if (
+        /chair|toilet|plant/.test(kind)
+      ) {
+        w = 16;
+        h = 16;
 
-          for (let row = 7; row < TILE_SIZE; row += 7) {
-            ctx.beginPath();
-            ctx.moveTo(p.x, p.y + row);
-            ctx.lineTo(p.x + TILE_SIZE, p.y + row);
-            ctx.stroke();
-          }
-
-          const seam = variation > 0.5 ? 10 : 21;
-          ctx.fillStyle = "rgba(42,31,23,.25)";
-          ctx.fillRect(p.x + seam, p.y, 1, 7);
-          ctx.fillRect(p.x + (32 - seam), p.y + 7, 1, 7);
-          ctx.fillRect(p.x + seam, p.y + 14, 1, 7);
-          ctx.fillStyle = "rgba(244,226,190,.06)";
-          ctx.fillRect(p.x + 2, p.y + 2, TILE_SIZE - 4, 1);
-        }
+        fill = kind.includes("plant")
+          ? "#4d7d50"
+          : "#8f8177";
       }
 
-      const stair = upper.stairTile;
-      const stairP = this.worldToScreen(
-        stair.x * TILE_SIZE,
-        stair.y * TILE_SIZE,
-        shakeX,
-        shakeY
+      floorCtx.save();
+
+      floorCtx.translate(
+        prop.x -
+          building.x * TILE_SIZE,
+
+        prop.y -
+          building.y * TILE_SIZE
       );
+
+      floorCtx.rotate(
+        prop.rotation || 0
+      );
+
+      const scale = Math.max(
+        0.58,
+        Math.min(
+          1,
+          prop.scale || 0.8
+        )
+      );
+
+      floorCtx.scale(
+        scale,
+        scale
+      );
+
+      floorCtx.fillStyle = "#332d27";
+
+      floorCtx.fillRect(
+        -w / 2 - 1,
+        -h / 2 - 1,
+        w + 2,
+        h + 2
+      );
+
+      floorCtx.fillStyle = fill;
+
+      floorCtx.fillRect(
+        -w / 2,
+        -h / 2,
+        w,
+        h
+      );
+
+      floorCtx.restore();
+    }
+
+    const stair = upper.stairTile;
+
+    if (stair) {
+      this.drawStaircaseSprite(
+        floorCtx,
+        {
+          x:
+            (stair.x - building.x) *
+            TILE_SIZE,
+
+          y:
+            (stair.y - building.y) *
+            TILE_SIZE
+        },
+        stair.side || "north",
+        true
+      );
+    }
+
+    upper.__stableCanvas = canvas;
+  }
+
+  /*
+   * Hide the entire ground level.
+   */
+  const background =
+    this.worldToScreen(
+      this.camera.x -
+        this.viewWidth,
+
+      this.camera.y -
+        this.viewHeight,
+
+      shakeX,
+      shakeY
+    );
+
+  ctx.fillStyle = "#090e0a";
+
+  ctx.fillRect(
+    background.x,
+    background.y,
+    this.viewWidth * 2,
+    this.viewHeight * 2
+  );
+
+  const origin =
+    this.worldToScreen(
+      building.x * TILE_SIZE,
+      building.y * TILE_SIZE,
+      shakeX,
+      shakeY
+    );
+
+  ctx.drawImage(
+    upper.__stableCanvas,
+    Math.round(origin.x),
+    Math.round(origin.y)
+  );
+}
       this.drawStaircaseSprite(ctx, stairP, stair.side, true);
 
       for (const prop of upper.decor || []) {
