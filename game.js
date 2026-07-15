@@ -4289,8 +4289,8 @@ flashlight: false
           Math.max(0, this.day - 1) * 0.025
         );
 
-        // 35 / 2 = 200% faster than the original spawn cycle.
-        this.spawnTimer = 35 / 2 * (1 - daySpeedup);
+        // 35 / 1.5 = 20% faster than the original spawn cycle.
+        this.spawnTimer = 35 / 3 * (1 - daySpeedup);
         this.spawnNightWanderers();
       }
 
