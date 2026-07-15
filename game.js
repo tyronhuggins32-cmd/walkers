@@ -4253,7 +4253,7 @@ flashlight: false
         );
 
         // 35 / 1.2 = 20% faster than the original spawn cycle.
-        this.spawnTimer = 35 / 1.2 * (1 - daySpeedup);
+        this.spawnTimer = 35 / 2 * (1 - daySpeedup);
         this.spawnNightWanderers();
       }
 
