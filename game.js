@@ -4448,6 +4448,7 @@ flashlight: false
       return closest;
     }
     updateSurvivors(dt) {
+      if (this.player.floorLevel === 1) return;
       for (const survivor of this.survivors) {
         if (survivor.dead) continue;
         survivor.attackCooldown = Math.max(0, survivor.attackCooldown - dt);
@@ -4566,8 +4567,68 @@ flashlight: false
       }
     }
     updateZombies(dt) {
-      const player = this.player;
-      const night = this.nightStrength();
+  const player = this.player;
+
+  /*
+   * Ground-floor zombies cannot see, chase, pathfind to, or
+   * attack someone who is on the second-floor layer.
+   *
+   * Pausing their expensive pathfinding also fixes upstairs lag.
+   */
+  if (player.floorLevel === 1) {
+    for (const zombie of this.zombies) {
+      zombie.deathAnim = Math.max(
+        0,
+        (zombie.deathAnim ?? 0) - dt * 2.5
+      );
+
+      if (zombie.dead) continue;
+
+      zombie.attackCooldown = Math.max(
+        0,
+        zombie.attackCooldown - dt
+      );
+
+      zombie.bashCooldown = Math.max(
+        0,
+        (zombie.bashCooldown || 0) - dt
+      );
+
+      zombie.hitFlash = Math.max(
+        0,
+        zombie.hitFlash - dt
+      );
+
+      zombie.attackAnim = Math.max(
+        0,
+        zombie.attackAnim - dt
+      );
+
+      zombie.hurtAnim = Math.max(
+        0,
+        zombie.hurtAnim - dt
+      );
+
+      zombie.moveBlend +=
+        (0 - zombie.moveBlend) *
+        Math.min(1, dt * 8);
+
+      if (zombie.targetEntityId === "player") {
+        zombie.targetEntityId = null;
+        zombie.state = "wander";
+        zombie.memory = 0;
+        zombie.path = [];
+      }
+    }
+
+    this.zombies = this.zombies.filter(
+      (zombie) => !zombie.remove
+    );
+
+    return;
+  }
+
+  const night = this.nightStrength();
       const humanTargets = [player, ...this.survivors.filter((survivor) => !survivor.dead)];
       for (const zombie of this.zombies) {
         zombie.deathAnim = Math.max(0, (zombie.deathAnim ?? 0) - dt * 2.5);
@@ -4742,6 +4803,12 @@ flashlight: false
       if (distance(zombie, this.player) < 620) this.toast("A howler's scream carries across the district.", "danger");
     }
     zombieAttack(zombie, target = this.player) {
+      if (
+  target === this.player &&
+  this.player.floorLevel === 1
+) {
+  return;
+}
       const profile = ZOMBIE_ARCHETYPES[zombie.archetype] || ZOMBIE_ARCHETYPES.normal;
       zombie.attackCooldown = (zombie.archetype === "runner" ? 0.58 : 0.88) + Math.random() * 0.38;
       zombie.attackAnim = 0.42;
@@ -5148,61 +5215,75 @@ flashlight: false
       return { building, upper: building.upperFloor };
     }
 
-    nearestStair(maxRange = 96) {
-      if (!this.player) return null;
+    nearestStair(maxRange = 82) {
+  if (!this.player) return null;
 
-      if (this.player.floorLevel === 1) {
-        const current = this.currentUpperFloor();
-        if (!current) return null;
-        const stair = current.upper.stairTile;
-        const x = (stair.x + 0.5) * TILE_SIZE;
-        const y = (stair.y + 0.5) * TILE_SIZE;
-        const d = Math.hypot(this.player.x - x, this.player.y - y);
+  // Upstairs only needs to check the staircase in the current house.
+  if (this.player.floorLevel === 1) {
+    const current = this.currentUpperFloor();
 
-        return d <= maxRange
-          ? {
-              ref: current.building,
-              source: "stairs",
-              kind: "stairs down",
-              interactionDistance: d,
-              x,
-              y
-            }
-          : null;
-      }
+    if (!current?.upper?.stairTile) return null;
 
-      let closest = null;
-      let best = maxRange;
+    const stair = current.upper.stairTile;
+    const x = (stair.x + 0.5) * TILE_SIZE;
+    const y = (stair.y + 0.5) * TILE_SIZE;
+    const d = Math.hypot(
+      this.player.x - x,
+      this.player.y - y
+    );
 
-    for (const building of this.world.buildings) {
-  if (!building.stairTile) continue;
+    if (d > maxRange) return null;
+
+    return {
+      ref: current.building,
+      source: "stairs",
+      kind: "stairs down",
+      interactionDistance: d,
+      x,
+      y
+    };
+  }
+
+  /*
+   * The stairs are inside a house, so only check the building
+   * the player is currently standing inside.
+   *
+   * This replaces the old loop through every building.
+   */
+  const building = this.buildingAt(this.player);
+
+  if (
+    !building?.stairTile ||
+    building.type !== "house" ||
+    building.floorCount < 2
+  ) {
+    return null;
+  }
 
   if (!building.upperFloor) {
     buildSecondFloorLayer(this.world, building);
   }
 
-  if (!building.upperFloor) continue;
+  if (!building.upperFloor) return null;
 
-        const x = (building.stairTile.x + 0.5) * TILE_SIZE;
-        const y = (building.stairTile.y + 0.5) * TILE_SIZE;
-        const d = Math.hypot(this.player.x - x, this.player.y - y);
+  const x = (building.stairTile.x + 0.5) * TILE_SIZE;
+  const y = (building.stairTile.y + 0.5) * TILE_SIZE;
+  const d = Math.hypot(
+    this.player.x - x,
+    this.player.y - y
+  );
 
-        if (d >= best) continue;
+  if (d > maxRange) return null;
 
-        best = d;
-        closest = {
-          ref: building,
-          source: "stairs",
-          kind: "stairs up",
-          interactionDistance: d,
-          x,
-          y
-        };
-      }
-
-      return closest;
-    }
-
+  return {
+    ref: building,
+    source: "stairs",
+    kind: "stairs up",
+    interactionDistance: d,
+    x,
+    y
+  };
+}
     useStairs(building) {
   if (!building?.stairTile) return;
 
@@ -5246,32 +5327,90 @@ flashlight: false
     }
 
     upperFloorCircleBlocked(x, y, radius) {
-      const current = this.currentUpperFloor();
-      if (!current) return true;
+  let current = this.currentUpperFloor();
 
-      const { upper } = current;
-      const minX = Math.floor((x - radius) / TILE_SIZE);
-      const maxX = Math.floor((x + radius) / TILE_SIZE);
-      const minY = Math.floor((y - radius) / TILE_SIZE);
-      const maxY = Math.floor((y + radius) / TILE_SIZE);
+  if (!current) return true;
 
-      for (let ty = minY; ty <= maxY; ty += 1) {
-        for (let tx = minX; tx <= maxX; tx += 1) {
-          const key = `${tx},${ty}`;
-          if (upper.floorSet.has(key) && !upper.walls.has(key)) continue;
+  /*
+   * Sets do not survive normal JSON saving. Rebuild the floor
+   * if an older save contains plain objects instead of Sets.
+   */
+  if (
+    !(current.upper.floorSet instanceof Set) ||
+    !(current.upper.walls instanceof Set)
+  ) {
+    buildSecondFloorLayer(
+      this.world,
+      current.building
+    );
 
-          const left = tx * TILE_SIZE;
-          const top = ty * TILE_SIZE;
-          const nearestX = clamp(x, left, left + TILE_SIZE);
-          const nearestY = clamp(y, top, top + TILE_SIZE);
+    current = this.currentUpperFloor();
 
-          if ((x - nearestX) ** 2 + (y - nearestY) ** 2 < radius ** 2) return true;
-        }
+    if (!current) return true;
+  }
+
+  const upper = current.upper;
+
+  /*
+   * Use a smaller upstairs collision radius.
+   * The character model stays the same size, but narrow doors
+   * and corners no longer create invisible blocking.
+   */
+  const collisionRadius = Math.min(radius, 7);
+
+  const minX = Math.floor(
+    (x - collisionRadius) / TILE_SIZE
+  );
+  const maxX = Math.floor(
+    (x + collisionRadius) / TILE_SIZE
+  );
+  const minY = Math.floor(
+    (y - collisionRadius) / TILE_SIZE
+  );
+  const maxY = Math.floor(
+    (y + collisionRadius) / TILE_SIZE
+  );
+
+  for (let ty = minY; ty <= maxY; ty += 1) {
+    for (let tx = minX; tx <= maxX; tx += 1) {
+      const key = `${tx},${ty}`;
+
+      if (
+        upper.floorSet.has(key) &&
+        !upper.walls.has(key)
+      ) {
+        continue;
       }
 
-      return false;
-    }
+      const left = tx * TILE_SIZE;
+      const top = ty * TILE_SIZE;
 
+      const nearestX = clamp(
+        x,
+        left,
+        left + TILE_SIZE
+      );
+
+      const nearestY = clamp(
+        y,
+        top,
+        top + TILE_SIZE
+      );
+
+      const dx = x - nearestX;
+      const dy = y - nearestY;
+
+      if (
+        dx * dx + dy * dy <
+        collisionRadius * collisionRadius
+      ) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
     drawStaircaseSprite(ctx, p, side = "north", goingDown = false) {
       const angle =
         side === "east"
@@ -6345,23 +6484,89 @@ flashlight: false
       ctx.translate(width / 2, height / 2);
       ctx.scale(CAMERA_ZOOM, CAMERA_ZOOM);
       ctx.translate(-width / 2, -height / 2);
-      const halfWorldWidth = width / (2 * CAMERA_ZOOM);
-      const halfWorldHeight = height / (2 * CAMERA_ZOOM);
-      const minTileX = clamp(Math.floor((this.camera.x - halfWorldWidth) / TILE_SIZE) - 2, 0, this.world.width - 1);
-      const maxTileX = clamp(Math.ceil((this.camera.x + halfWorldWidth) / TILE_SIZE) + 2, 0, this.world.width - 1);
-      const minTileY = clamp(Math.floor((this.camera.y - halfWorldHeight) / TILE_SIZE) - 2, 0, this.world.height - 1);
-      const maxTileY = clamp(Math.ceil((this.camera.y + halfWorldHeight) / TILE_SIZE) + 2, 0, this.world.height - 1);
-      for (let ty = minTileY; ty <= maxTileY; ty += 1) {
-        for (let tx = minTileX; tx <= maxTileX; tx += 1) this.drawTile(ctx, tx, ty, shakeX, shakeY);
-      }
-      const upstairs =
+     const upstairs =
   this.player.floorLevel === 1 &&
   this.currentUpperFloor();
 
 if (upstairs) {
-  this.drawUpperFloorLayer(ctx, shakeX, shakeY);
-  this.drawPlayer(ctx, shakeX, shakeY);
+  /*
+   * Do not draw hundreds of ground tiles, cars, zombies,
+   * containers, survivors, and effects underneath the upstairs.
+   */
+  this.drawUpperFloorLayer(
+    ctx,
+    shakeX,
+    shakeY
+  );
+
+  this.drawPlayer(
+    ctx,
+    shakeX,
+    shakeY
+  );
 } else {
+  const halfWorldWidth =
+    width / (2 * CAMERA_ZOOM);
+
+  const halfWorldHeight =
+    height / (2 * CAMERA_ZOOM);
+
+  const minTileX = clamp(
+    Math.floor(
+      (this.camera.x - halfWorldWidth) /
+      TILE_SIZE
+    ) - 2,
+    0,
+    this.world.width - 1
+  );
+
+  const maxTileX = clamp(
+    Math.ceil(
+      (this.camera.x + halfWorldWidth) /
+      TILE_SIZE
+    ) + 2,
+    0,
+    this.world.width - 1
+  );
+
+  const minTileY = clamp(
+    Math.floor(
+      (this.camera.y - halfWorldHeight) /
+      TILE_SIZE
+    ) - 2,
+    0,
+    this.world.height - 1
+  );
+
+  const maxTileY = clamp(
+    Math.ceil(
+      (this.camera.y + halfWorldHeight) /
+      TILE_SIZE
+    ) + 2,
+    0,
+    this.world.height - 1
+  );
+
+  for (
+    let ty = minTileY;
+    ty <= maxTileY;
+    ty += 1
+  ) {
+    for (
+      let tx = minTileX;
+      tx <= maxTileX;
+      tx += 1
+    ) {
+      this.drawTile(
+        ctx,
+        tx,
+        ty,
+        shakeX,
+        shakeY
+      );
+    }
+  }
+
   for (const blood of this.blood) {
     if (this.isHiddenInside(blood)) continue;
 
@@ -6381,9 +6586,17 @@ if (upstairs) {
       continue;
     }
 
-    ctx.fillStyle = `rgba(85, 25, 24, ${blood.alpha})`;
+    ctx.fillStyle =
+      `rgba(85, 25, 24, ${blood.alpha})`;
+
     ctx.beginPath();
-    ctx.arc(p.x, p.y, blood.size, 0, Math.PI * 2);
+    ctx.arc(
+      p.x,
+      p.y,
+      blood.size,
+      0,
+      Math.PI * 2
+    );
     ctx.fill();
   }
 
@@ -6397,7 +6610,6 @@ if (upstairs) {
   this.drawPlayer(ctx, shakeX, shakeY);
   this.drawEffects(ctx, shakeX, shakeY, false);
 }
-
       ctx.restore();
       this.drawLighting(ctx);
       this.drawVignette(ctx);
