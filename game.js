@@ -6382,10 +6382,14 @@ if (goingUp) {
       const survivalGrowth =
         1 + Math.min(1.15, Math.max(0, this.day - 1) * 0.085);
 
-      const targetPopulation = Math.min(
-        280,
-        Math.floor((85 + this.day * 9) * 1.45 * survivalGrowth)
-      );
+    const targetPopulation = Math.min(
+  560,
+  Math.floor(
+    (85 + this.day * 9) *
+      1.45 *
+      survivalGrowth
+  )
+) 
 
       const living = this.zombies.filter(
         (zombie) => !zombie.dead
