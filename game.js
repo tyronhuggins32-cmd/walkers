@@ -4376,7 +4376,7 @@ flashlight: false
 }
       } else {
         const recovery = player.hunger < 15 || player.thirst < 15 ? 6 : 14;
-        const exhaustedRecovery = hasInput ? 10 : 18;
+        const exhaustedRecovery = hasInput ? 5 : 9;
         player.stamina = Math.min(
   100,
   player.stamina +
