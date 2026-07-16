@@ -6576,10 +6576,7 @@ if (goingUp) {
       ).length;
 
       const populationCap = Math.min(
-  320,
-  190 + this.day * 12
-);
-  640,
+640,
   380 + this.day * 24
 );
       if (living >= populationCap) return;
