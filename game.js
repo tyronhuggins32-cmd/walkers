@@ -4377,7 +4377,11 @@ flashlight: false
       } else {
         const recovery = player.hunger < 15 || player.thirst < 15 ? 6 : 14;
         const exhaustedRecovery = hasInput ? 10 : 18;
-        player.stamina = Math.min(100, player.stamina + dt * (player.exhausted ? exhaustedRecovery : recovery));
+        player.stamina = Math.min(
+  100,
+  player.stamina +
+    dt * (player.exhausted ? exhaustedRecovery : recovery) * 0.6
+);
       }
       const control = knockedBack ? 0.16 : player.actionAnim > 0 ? 0.58 : 1;
       const desiredVelocityX = inputX * speed * inputStrength * control;
