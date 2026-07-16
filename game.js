@@ -4969,10 +4969,9 @@ zombie.memory =
   includeStructures = false
 ) {
   if (
-if (
-  entity === this.player &&
-  this.player.floorLevel === 1
-) {
+    entity === this.player &&
+    this.player.floorLevel === 1
+  ) {
   const current = this.currentUpperFloor();
 
   if (!current) return;
